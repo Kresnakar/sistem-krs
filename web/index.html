@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sistem KRS - Modul Kurikulum & Prasyarat</title>
+  <style>
+    * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+    body { margin: 0; padding: 20px; background: #f3f4f6; color: #1f2937; }
+    .container { max-width: 1100px; margin: 0 auto; }
+    h1 { margin-top: 0; font-size: 22px; color: #111827; }
+    .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+    .tab-btn { padding: 10px 16px; border: 1px solid #d1d5db; background: #fff; border-radius: 8px; cursor: pointer; font-weight: 600; }
+    .tab-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+    .card { background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 16px; }
+    .section { display: none; }
+    .section.active { display: block; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 12px; }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; color: #374151; }
+    input, select { width: 100%; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; }
+    button { padding: 8px 14px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px; }
+    .btn-primary { background: #2563eb; color: #fff; }
+    .btn-secondary { background: #e5e7eb; color: #1f2937; }
+    .btn-danger { background: #dc2626; color: #fff; }
+    .btn-warn { background: #d97706; color: #fff; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 14px; }
+    th, td { text-align: left; padding: 10px; border-bottom: 1px solid #e5e7eb; }
+    th { background: #f9fafb; }
+    .alert { padding: 12px; border-radius: 6px; margin-bottom: 12px; font-size: 14px; display: none; }
+    .alert.ok { display: block; background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+    .alert.err { display: block; background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+    pre { background: #111827; color: #f9fafb; padding: 14px; border-radius: 8px; overflow-x: auto; font-size: 13px; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>Sistem KRS — Modul Mata Kuliah, Kesetaraan & Prasyarat</h1>
+
+  <div id="notif" class="alert"></div>
+
+  <div class="tabs">
+    <button class="tab-btn active" onclick="bukaTab('mk', this)">1. CRUD Mata Kuliah</button>
+    <button class="tab-btn" onclick="bukaTab('setara', this)">2. Kesetaraan Kurikulum</button>
+    <button class="tab-btn" onclick="bukaTab('prasyarat', this)">3. Prasyarat AND/OR & Deteksi Siklus</button>
+    <button class="tab-btn" onclick="bukaTab('evaluasi', this)">4. Evaluasi Prasyarat Mahasiswa</button>
+  </div>
+
+  <!-- TAB 1: CRUD MATA KULIAH -->
+  <div id="tab-mk" class="section active">
+    <div class="card">
+      <h3 id="form-mk-title">Tambah Mata Kuliah Baru</h3>
+      <div class="grid">
+        <div><label>Kode MK</label><input id="mk-kode" placeholder="Contoh: IF401" /></div>
+        <div><label>Nama Mata Kuliah</label><input id="mk-nama" placeholder="Contoh: Pemrograman Go" /></div>
+        <div><label>SKS</label><input id="mk-sks" type="number" value="3" min="1" /></div>
+        <div><label>Kurikulum</label><input id="mk-kurikulum" value="2023" /></div>
+        <div>
+          <label>Status</label>
+          <select id="mk-aktif">
+            <option value="true">Aktif</option>
+            <option value="false">Nonaktif</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn-primary" onclick="simpanMK()">Simpan Mata Kuliah</button>
+      <button class="btn-secondary" onclick="resetFormMK()">Reset Form</button>
+    </div>
+
+    <div class="card">
+      <h3>Daftar Mata Kuliah</h3>
+      <table>
+        <thead>
+          <tr><th>Kode</th><th>Nama Mata Kuliah</th><th>SKS</th><th>Kurikulum</th><th>Status</th><th>Aksi</th></tr>
+        </thead>
+        <tbody id="tabel-mk"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- TAB 2: KESETARAAN KURIKULUM -->
+  <div id="tab-setara" class="section">
+    <div class="card">
+      <h3>Tambah Kesetaraan Mata Kuliah</h3>
+      <div class="grid">
+        <div><label>Kode MK Lama</label><input id="ks-lama" placeholder="Contoh: IF001" /></div>
+        <div><label>Kode MK Baru</label><input id="ks-baru" placeholder="Contoh: IF101" /></div>
+        <div><label>Keterangan</label><input id="ks-ket" placeholder="Alasan penyetaraan" /></div>
+      </div>
+      <button class="btn-primary" onclick="tambahKesetaraan()">Tambah Kesetaraan</button>
+    </div>
+
+    <div class="card">
+      <h3>Daftar Kesetaraan Terdaftar</h3>
+      <table>
+        <thead>
+          <tr><th>MK Lama</th><th>MK Baru</th><th>Keterangan</th><th>Aksi</th></tr>
+        </thead>
+        <tbody id="tabel-ks"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- TAB 3: PRASYARAT & DETEKSI SIKLUS -->
+  <div id="tab-prasyarat" class="section">
+    <div class="card">
+      <h3>Tambah Node Prasyarat (Otomatis Cek Siklus)</h3>
+      <div class="grid">
+        <div><label>Kode MK Tujuan</label><input id="ps-kode" placeholder="Contoh: IF301" /></div>
+        <div><label>Parent ID (Kosongkan jika Root)</label><input id="ps-parent" type="number" placeholder="Contoh: 1" /></div>
+        <div>
+          <label>Tipe Node</label>
+          <select id="ps-tipe">
+            <option value="LEAF">LEAF (Mata Kuliah Syarat)</option>
+            <option value="AND">AND (Grup Logika AND)</option>
+            <option value="OR">OR (Grup Logika OR)</option>
+          </select>
+        </div>
+        <div><label>Kode MK Syarat (Untuk LEAF)</label><input id="ps-syarat" placeholder="Contoh: IF201" /></div>
+        <div><label>Nilai Minimal (Untuk LEAF)</label><input id="ps-nilai" value="C" /></div>
+      </div>
+      <button class="btn-primary" onclick="tambahPrasyarat()">Simpan Aturan Prasyarat</button>
+      <button class="btn-warn" onclick="isiContohSiklus()">Isi Contoh Siklus (IF101 butuh IF302)</button>
+    </div>
+
+    <div class="card">
+      <h3>Lihat Pohon Prasyarat Mata Kuliah</h3>
+      <div class="grid">
+        <div><label>Masukkan Kode MK</label><input id="ps-cari" value="IF302" /></div>
+      </div>
+      <button class="btn-primary" onclick="lihatPohon()">Tampilkan Pohon</button>
+      <button class="btn-danger" onclick="hapusPrasyarat()">Hapus Semua Prasyarat MK Ini</button>
+      <pre id="hasil-pohon">Klik "Tampilkan Pohon" untuk melihat struktur aturan prasyarat.</pre>
+    </div>
+  </div>
+
+  <!-- TAB 4: EVALUASI PRASYARAT MAHASISWA -->
+  <div id="tab-evaluasi" class="section">
+    <div class="card">
+      <h3>Cek Kelayakan Mahasiswa Mengambil Mata Kuliah</h3>
+      <div class="grid">
+        <div>
+          <label>NIM Mahasiswa</label>
+          <input id="ev-nim" value="230001" placeholder="Contoh: 230001" />
+        </div>
+        <div>
+          <label>Kode Mata Kuliah yang Diambil</label>
+          <input id="ev-kode" value="IF302" placeholder="Contoh: IF302 atau IF301" />
+        </div>
+      </div>
+      <button class="btn-primary" onclick="evaluasiPrasyarat()">Evaluasi Sekarang</button>
+      <pre id="hasil-evaluasi">Klik "Evaluasi Sekarang" untuk memeriksa kelulusan prasyarat.</pre>
+    </div>
+  </div>
+</div>
+
+<script>
+  let modeEditMK = false;
+
+  function showNotif(msg, isError = false) {
+    const el = document.getElementById('notif');
+    el.textContent = msg;
+    el.className = 'alert ' + (isError ? 'err' : 'ok');
+    setTimeout(() => { el.className = 'alert'; }, 6000);
+  }
+
+  function bukaTab(nama, btn) {
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-' + nama).classList.add('active');
+    btn.classList.add('active');
+  }
+
+  // --- 1. CRUD MATA KULIAH ---
+  async function loadMK() {
+    const res = await fetch('/api/mata-kuliah');
+    const data = await res.json();
+    const tbody = document.getElementById('tabel-mk');
+    tbody.innerHTML = data.map(mk => `
+      <tr>
+        <td><b>${mk.kode_mk}</b></td>
+        <td>${mk.nama}</td>
+        <td>${mk.sks}</td>
+        <td>${mk.kurikulum}</td>
+        <td>${mk.aktif ? 'Aktif' : 'Nonaktif'}</td>
+        <td>
+          <button class="btn-secondary" onclick='editMK(${JSON.stringify(mk)})'>Edit</button>
+          <button class="btn-danger" onclick="hapusMK('${mk.kode_mk}')">Hapus</button>
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  function editMK(mk) {
+    modeEditMK = true;
+    document.getElementById('form-mk-title').textContent = 'Ubah Mata Kuliah: ' + mk.kode_mk;
+    document.getElementById('mk-kode').value = mk.kode_mk;
+    document.getElementById('mk-kode').disabled = true;
+    document.getElementById('mk-nama').value = mk.nama;
+    document.getElementById('mk-sks').value = mk.sks;
+    document.getElementById('mk-kurikulum').value = mk.kurikulum;
+    document.getElementById('mk-aktif').value = String(mk.aktif);
+  }
+
+  function resetFormMK() {
+    modeEditMK = false;
+    document.getElementById('form-mk-title').textContent = 'Tambah Mata Kuliah Baru';
+    document.getElementById('mk-kode').value = '';
+    document.getElementById('mk-kode').disabled = false;
+    document.getElementById('mk-nama').value = '';
+    document.getElementById('mk-sks').value = 3;
+    document.getElementById('mk-kurikulum').value = '2023';
+    document.getElementById('mk-aktif').value = 'true';
+  }
+
+  async function simpanMK() {
+    const kode = document.getElementById('mk-kode').value.trim();
+    const payload = {
+      kode_mk: kode,
+      nama: document.getElementById('mk-nama').value.trim(),
+      sks: parseInt(document.getElementById('mk-sks').value, 10),
+      kurikulum: document.getElementById('mk-kurikulum').value.trim(),
+      aktif: document.getElementById('mk-aktif').value === 'true'
+    };
+    const url = modeEditMK ? `/api/mata-kuliah/${kode}` : '/api/mata-kuliah';
+    const method = modeEditMK ? 'PUT' : 'POST';
+    const res = await fetch(url, { method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+    const data = await res.json();
+    if (!res.ok) return showNotif(data.error || 'Gagal menyimpan', true);
+    showNotif(modeEditMK ? 'Mata kuliah berhasil diperbarui' : 'Mata kuliah berhasil ditambahkan');
+    resetFormMK();
+    loadMK();
+  }
+
+  async function hapusMK(kode) {
+    if (!confirm('Hapus mata kuliah ' + kode + '?')) return;
+    const res = await fetch(`/api/mata-kuliah/${kode}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) return showNotif(data.error || 'Gagal menghapus (mungkin masih dipakai relasi)', true);
+    showNotif(data.message);
+    loadMK();
+  }
+
+  // --- 2. KESETARAAN KURIKULUM ---
+  async function loadKesetaraan() {
+    const res = await fetch('/api/kesetaraan');
+    const data = await res.json();
+    const tbody = document.getElementById('tabel-ks');
+    tbody.innerHTML = data.map(k => `
+      <tr>
+        <td><b>${k.mk_lama}</b></td>
+        <td><b>${k.mk_baru}</b></td>
+        <td>${k.keterangan || '-'}</td>
+        <td><button class="btn-danger" onclick="hapusKesetaraan('${k.mk_lama}','${k.mk_baru}')">Hapus</button></td>
+      </tr>
+    `).join('');
+  }
+
+  async function tambahKesetaraan() {
+    const payload = {
+      mk_lama: document.getElementById('ks-lama').value.trim(),
+      mk_baru: document.getElementById('ks-baru').value.trim(),
+      keterangan: document.getElementById('ks-ket').value.trim()
+    };
+    const res = await fetch('/api/kesetaraan', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+    const data = await res.json();
+    if (!res.ok) return showNotif(data.error, true);
+    showNotif('Kesetaraan kurikulum berhasil ditambahkan');
+    document.getElementById('ks-lama').value = '';
+    document.getElementById('ks-baru').value = '';
+    document.getElementById('ks-ket').value = '';
+    loadKesetaraan();
+  }
+
+  async function hapusKesetaraan(lama, baru) {
+    const res = await fetch(`/api/kesetaraan/${lama}/${baru}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) return showNotif(data.error, true);
+    showNotif(data.message);
+    loadKesetaraan();
+  }
+
+  // --- 3. PRASYARAT & DETEKSI SIKLUS ---
+  function isiContohSiklus() {
+    document.getElementById('ps-kode').value = 'IF101';
+    document.getElementById('ps-parent').value = '';
+    document.getElementById('ps-tipe').value = 'LEAF';
+    document.getElementById('ps-syarat').value = 'IF302';
+    document.getElementById('ps-nilai').value = 'C';
+    showNotif('Form diisi contoh siklus (IF101 -> IF302). Klik "Simpan Aturan Prasyarat" untuk menguji penolakan siklus!');
+  }
+
+  async function tambahPrasyarat() {
+    const parentVal = document.getElementById('ps-parent').value.trim();
+    const syaratVal = document.getElementById('ps-syarat').value.trim();
+    const nilaiVal = document.getElementById('ps-nilai').value.trim();
+    const payload = {
+      kode_mk: document.getElementById('ps-kode').value.trim(),
+      parent_id: parentVal ? parseInt(parentVal, 10) : null,
+      tipe: document.getElementById('ps-tipe').value,
+      kode_mk_syarat: syaratVal ? syaratVal : null,
+      nilai_minimal: nilaiVal ? nilaiVal : null
+    };
+    const res = await fetch('/api/prasyarat', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+    const data = await res.json();
+    if (!res.ok) return showNotif('DITOLAK: ' + data.error, true);
+    showNotif('Aturan prasyarat berhasil disimpan (ID Node: ' + data.id + ')');
+    document.getElementById('ps-cari').value = payload.kode_mk;
+    lihatPohon();
+  }
+
+  async function lihatPohon() {
+    const kode = document.getElementById('ps-cari').value.trim();
+    const res = await fetch(`/api/prasyarat/${kode}`);
+    const data = await res.json();
+    document.getElementById('hasil-pohon').textContent = JSON.stringify(data, null, 2);
+  }
+
+  async function hapusPrasyarat() {
+    const kode = document.getElementById('ps-cari').value.trim();
+    if (!confirm('Hapus semua aturan prasyarat untuk ' + kode + '?')) return;
+    const res = await fetch(`/api/prasyarat/${kode}`, { method: 'DELETE' });
+    const data = await res.json();
+    showNotif(data.message || data.error, !res.ok);
+    lihatPohon();
+  }
+
+  // --- 4. EVALUASI PRASYARAT ---
+  async function evaluasiPrasyarat() {
+    const nim = document.getElementById('ev-nim').value.trim();
+    const kode = document.getElementById('ev-kode').value.trim();
+    const res = await fetch(`/api/prasyarat/evaluasi/${nim}/${kode}`);
+    const data = await res.json();
+    document.getElementById('hasil-evaluasi').textContent = JSON.stringify(data, null, 2);
+    showNotif(data.ringkasan, !data.memenuhi);
+  }
+
+  loadMK();
+  loadKesetaraan();
+</script>
+</body>
+</html>
