@@ -612,3 +612,76 @@ COMMIT;
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+-- ============================================================
+-- TAMBAHAN: Modul Kelas Paralel & Riwayat Nilai
+-- ============================================================
+
+-- Tabel Semester (Contoh: 2023/2024 Genap)
+CREATE TABLE IF NOT EXISTS semester (
+    id INT NOT NULL AUTO_INCREMENT,
+    tahun_akademik VARCHAR(9) NOT NULL, -- Format: "2023/2024"
+    jenis ENUM('Ganjil', 'Genap', 'Antara') NOT NULL,
+    status_aktif BOOLEAN NOT NULL DEFAULT FALSE,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_semester (tahun_akademik, jenis)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Tabel Skala Nilai (Referensi untuk konversi Huruf ke Angka)
+CREATE TABLE IF NOT EXISTS skala_nilai (
+    nilai_huruf VARCHAR(2) NOT NULL, -- A, AB, B, dst
+    bobot DECIMAL(3,2) NOT NULL, -- 4.0, 3.5, dst
+    PRIMARY KEY (nilai_huruf)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Seed Data Skala Nilai (PENTING untuk perhitungan)
+INSERT INTO skala_nilai (nilai_huruf, bobot) VALUES
+('A', 4.00), ('AB', 3.50), ('B', 3.00), ('BC', 2.50),
+('C', 2.00), ('D', 1.00), ('E', 0.00);
+
+-- Seed Data Semester (Contoh untuk pengujian)
+INSERT INTO semester (tahun_akademik, jenis, status_aktif) VALUES
+('2023/2024', 'Ganjil', 0),
+('2023/2024', 'Genap', 1);
+
+-- Tabel Kelas Paralel (FR-02)
+CREATE TABLE IF NOT EXISTS kelas (
+    id INT NOT NULL AUTO_INCREMENT,
+    kode_mk VARCHAR(20) NOT NULL,
+    semester_id INT NOT NULL,
+    kode_paralel VARCHAR(10) NOT NULL, -- Contoh: A, B, C
+    dosen_pengampu VARCHAR(100),
+    kuota INT NOT NULL DEFAULT 0,
+    terisi INT NOT NULL DEFAULT 0, -- Counter jumlah mahasiswa terdaftar
+    status ENUM('Dibuka', 'Ditutup', 'Dibatalkan') NOT NULL DEFAULT 'Dibuka',
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_kelas_paralel (kode_mk, semester_id, kode_paralel),
+    CONSTRAINT fk_kelas_mk FOREIGN KEY (kode_mk) REFERENCES mata_kuliah (kode_mk),
+    CONSTRAINT fk_kelas_semester FOREIGN KEY (semester_id) REFERENCES semester (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Tabel Jadwal Kelas (FR-02) - Satu kelas bisa memiliki >1 jadwal (misal: Kuliah & Responsi)
+CREATE TABLE IF NOT EXISTS jadwal_kelas (
+    id INT NOT NULL AUTO_INCREMENT,
+    kelas_id INT NOT NULL,
+    hari ENUM('Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu') NOT NULL,
+    jam_mulai TIME NOT NULL, -- Format: HH:MM:SS
+    jam_selesai TIME NOT NULL,
+    ruang VARCHAR(50),
+    PRIMARY KEY (id),
+    CONSTRAINT fk_jadwal_kelas FOREIGN KEY (kelas_id) REFERENCES kelas (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Tabel Riwayat Nilai Mahasiswa (FR-03)
+CREATE TABLE IF NOT EXISTS riwayat_nilai (
+    id INT NOT NULL AUTO_INCREMENT,
+    nim VARCHAR(20) NOT NULL, -- Asumsi tabel mahasiswa sudah ada di schema teman Anda
+    kode_mk VARCHAR(20) NOT NULL,
+    semester_id INT NOT NULL, -- Semester kapan nilai diperoleh
+    nilai_huruf VARCHAR(2) NOT NULL,
+    PRIMARY KEY (id),
+    -- Mahasiswa hanya boleh punya 1 nilai resmi per MK per semester
+    UNIQUE KEY uq_nilai_mahasiswa_mk_semester (nim, kode_mk, semester_id),
+    CONSTRAINT fk_nilai_mk FOREIGN KEY (kode_mk) REFERENCES mata_kuliah (kode_mk),
+    CONSTRAINT fk_nilai_semester FOREIGN KEY (semester_id) REFERENCES semester (id),
+    CONSTRAINT fk_nilai_skala FOREIGN KEY (nilai_huruf) REFERENCES skala_nilai (nilai_huruf)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -8,8 +8,10 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/kresnakar/sistem-krs/internal/database"
+	"github.com/kresnakar/sistem-krs/internal/kelas"
 	"github.com/kresnakar/sistem-krs/internal/kesetaraan"
 	"github.com/kresnakar/sistem-krs/internal/matakuliah"
+	"github.com/kresnakar/sistem-krs/internal/nilai"
 	"github.com/kresnakar/sistem-krs/internal/prasyarat"
 )
 
@@ -45,7 +47,20 @@ func main() {
 	psHandler := prasyarat.NewHandler(psService, psRepo)
 	psHandler.RegisterRoutes(mux)
 
-	// 4. Halaman Web Antarmuka
+	// 4. Registrasi Modul Kelas Paralel (Tugas Anda)
+	kelasRepo := kelas.NewRepository(db)
+	kelasService := kelas.NewService(kelasRepo)
+	kelasHandler := kelas.NewHandler(kelasService)
+	kelasHandler.RegisterRoutes(mux)
+
+	// 5. Registrasi Modul Nilai Mahasiswa (Tugas Anda)
+
+	nilaiRepo := nilai.NewRepository(db)
+	nilaiService := nilai.NewService(nilaiRepo)
+	nilaiHandler := nilai.NewHandler(nilaiService)
+	nilaiHandler.RegisterRoutes(mux)
+
+	// 6. Halaman Web Antarmuka
 	mux.Handle("/", http.FileServer(http.Dir("web")))
 
 	log.Println("================================")
