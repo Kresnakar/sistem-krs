@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/kresnakar/sistem-krs/internal/auth"
 	"github.com/kresnakar/sistem-krs/internal/database"
 	"github.com/kresnakar/sistem-krs/internal/kelas"
 	"github.com/kresnakar/sistem-krs/internal/kesetaraan"
@@ -29,45 +30,103 @@ func main() {
 	}
 	defer db.Close()
 
-	mux := http.NewServeMux()
+	// Inisialisasi session
+	store, err := auth.NewSessionStore()
+	if err != nil {
+		log.Fatal("Gagal menginisialisasi session: ", err)
+	}
 
-	// 1. Registrasi modul Mata Kuliah (CRUD)
+	// Router khusus modul administrasi
+	adminMux := http.NewServeMux()
+
+	// 1. Modul Mata Kuliah
 	mkRepo := matakuliah.NewRepository(db)
 	mkHandler := matakuliah.NewHandler(mkRepo)
-	mkHandler.RegisterRoutes(mux)
+	mkHandler.RegisterRoutes(adminMux)
 
-	// 2. Registrasi modul Kesetaraan Kurikulum
+	// 2. Modul Kesetaraan Kurikulum
 	ksRepo := kesetaraan.NewRepository(db)
 	ksHandler := kesetaraan.NewHandler(ksRepo)
-	ksHandler.RegisterRoutes(mux)
+	ksHandler.RegisterRoutes(adminMux)
 
-	// 3. Registrasi modul Prasyarat (Evaluasi AND/OR & Deteksi Siklus)
+	// 3. Modul Prasyarat
 	psRepo := prasyarat.NewRepository(db)
 	psService := prasyarat.NewService(psRepo, ksRepo)
 	psHandler := prasyarat.NewHandler(psService, psRepo)
-	psHandler.RegisterRoutes(mux)
+	psHandler.RegisterRoutes(adminMux)
 
-	// 4. Registrasi Modul Kelas Paralel (Tugas Anda)
+	// 4. Modul Kelas Paralel
 	kelasRepo := kelas.NewRepository(db)
 	kelasService := kelas.NewService(kelasRepo)
 	kelasHandler := kelas.NewHandler(kelasService)
-	kelasHandler.RegisterRoutes(mux)
+	kelasHandler.RegisterRoutes(adminMux)
 
-	// 5. Registrasi Modul Nilai Mahasiswa (Tugas Anda)
-
+	// 5. Modul Nilai Mahasiswa
 	nilaiRepo := nilai.NewRepository(db)
 	nilaiService := nilai.NewService(nilaiRepo)
 	nilaiHandler := nilai.NewHandler(nilaiService)
-	nilaiHandler.RegisterRoutes(mux)
+	nilaiHandler.RegisterRoutes(adminMux)
 
-	// 6. Halaman Web Antarmuka
-	mux.Handle("/", http.FileServer(http.Dir("web")))
+	// Router utama
+	rootMux := http.NewServeMux()
+
+	// Login dan logout
+	rootMux.HandleFunc("/login", auth.LoginHandler(db, store))
+	rootMux.HandleFunc("/logout", auth.LogoutHandler(store))
+
+	// Dashboard Admin Prodi
+	adminPage := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "web/index.html")
+	})
+
+	rootMux.Handle(
+		"/admin",
+		auth.RequireAuth(store)(
+			auth.RequireRole(store, "Admin Prodi")(adminPage),
+		),
+	)
+
+	// API modul hanya untuk Admin Prodi
+	rootMux.Handle(
+		"/api/",
+		auth.RequireAuth(store)(
+			auth.RequireRole(store, "Admin Prodi")(adminMux),
+		),
+	)
+
+	// Dashboard role lain sementara belum tersedia
+	placeholder := func(role string) http.Handler {
+		return auth.RequireAuth(store)(
+			auth.RequireRole(store, role)(
+				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					http.Error(
+						w,
+						"Dashboard "+role+" belum dibuat",
+						http.StatusNotImplemented,
+					)
+				}),
+			),
+		)
+	}
+
+	rootMux.Handle("/mahasiswa", placeholder("Mahasiswa"))
+	rootMux.Handle("/dosen", placeholder("Dosen Wali"))
+	rootMux.Handle("/kaprodi", placeholder("Kaprodi"))
+
+	// Halaman utama
+	rootMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+	})
 
 	log.Println("================================")
 	log.Println("SISTEM KRS - Server berjalan di http://localhost:8080")
 	log.Println("================================")
 
-	if err := http.ListenAndServe(":8080", mux); err != nil {
+	if err := http.ListenAndServe(":8080", rootMux); err != nil {
 		log.Fatal(err)
 	}
 }
