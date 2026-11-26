@@ -43,6 +43,7 @@
     <button class="tab-btn" onclick="bukaTab('setara', this)">2. Kesetaraan Kurikulum</button>
     <button class="tab-btn" onclick="bukaTab('prasyarat', this)">3. Prasyarat AND/OR & Deteksi Siklus</button>
     <button class="tab-btn" onclick="bukaTab('evaluasi', this)">4. Evaluasi Prasyarat Mahasiswa</button>
+    <button class="tab-btn" onclick="bukaTab('krs', this)">5. Pengelolaan KRS</button>
   </div>
 
   <!-- TAB 1: CRUD MATA KULIAH -->
@@ -151,6 +152,66 @@
       <pre id="hasil-evaluasi">Klik "Evaluasi Sekarang" untuk memeriksa kelulusan prasyarat.</pre>
     </div>
   </div>
+
+<!-- TAB 5: PENGELOLAAN KRS -->
+<div id="tab-krs" class="section">
+  <div class="card">
+    <h3>Informasi KRS Mahasiswa</h3>
+
+    <div class="grid">
+      <div>
+        <label>NIM Mahasiswa</label>
+        <input id="krs-nim" value="230003" />
+      </div>
+
+      <div>
+        <label>Semester</label>
+        <input id="krs-semester" type="number" value="2" />
+      </div>
+    </div>
+
+    <button class="btn-primary" onclick="loadKRS()">
+      Tampilkan KRS
+    </button>
+
+    <div id="info-krs" style="margin-top: 16px;">
+      Data KRS belum ditampilkan.
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Daftar Kelas Tersedia</h3>
+    <table>
+      <thead>
+          <tr>
+            <th>Kode MK</th>
+            <th>Nama Mata Kuliah</th>
+            <th>Paralel</th>
+            <th>Kuota</th>
+            <th>Terisi</th>
+            <th>Status</th>
+            <th>Aksi</th>
+          </tr>
+      </thead>
+      <tbody id="tabel-kelas-krs"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Kelas yang Diambil</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Kelas ID</th>
+          <th>Kode MK</th>
+          <th>Status</th>
+          <th>Aksi</th>
+        </tr>
+      </thead>
+      <tbody id="tabel-detail-krs"></tbody>
+    </table>
+  </div>
+</div>
 </div>
 
 <script>
@@ -333,6 +394,174 @@
     document.getElementById('hasil-evaluasi').textContent = JSON.stringify(data, null, 2);
     showNotif(data.ringkasan, !data.memenuhi);
   }
+
+
+// --- 5. PENGELOLAAN KRS ---
+
+let dataKRS = null;
+let daftarKelasKRS = [];
+
+async function loadKRS() {
+  const nim = document.getElementById('krs-nim').value.trim();
+  const semester = document.getElementById('krs-semester').value;
+
+  try {
+    const res = await fetch(`/api/krs/${nim}/${semester}`);
+    const data = await res.json();
+
+    if (!res.ok) {
+      document.getElementById('info-krs').textContent =
+        data.error || 'Gagal mengambil data KRS';
+
+      return showNotif(data.error || 'Gagal mengambil KRS', true);
+    }
+
+    dataKRS = data;
+
+    document.getElementById('info-krs').innerHTML = `
+      <p><b>NIM:</b> ${data.nim}</p>
+      <p><b>Status KRS:</b> ${data.status}</p>
+      <p><b>Total SKS:</b> ${data.total_sks}</p>
+      <p><b>Batas SKS:</b> ${data.batas_sks}</p>
+    `;
+
+await loadKelasKRS();
+tampilkanDetailKRS();
+
+    showNotif('Data KRS berhasil dimuat');
+  } catch (err) {
+    showNotif('Tidak dapat terhubung ke server', true);
+  }
+}
+
+async function loadKelasKRS() {
+  const semester = document.getElementById('krs-semester').value;
+
+  try {
+    const res = await fetch(`/api/kelas/semester/${semester}`);
+    const data = await res.json();
+
+    if (!res.ok) {
+      return showNotif(data.error || 'Gagal mengambil daftar kelas', true);
+    }
+
+    daftarKelasKRS = data || [];
+    tampilkanDaftarKelasKRS();
+  } catch (err) {
+    showNotif('Gagal mengambil daftar kelas', true);
+  }
+}
+
+
+function tampilkanDaftarKelasKRS() {
+  const tbody = document.getElementById('tabel-kelas-krs');
+
+  tbody.innerHTML = daftarKelasKRS.map(kelas => `
+    <tr>
+      <td>${kelas.kode_mk}</td>
+      <td>${kelas.nama_mk || '-'}</td>
+      <td>${kelas.kode_paralel}</td>
+      <td>${kelas.kuota}</td>
+      <td>${kelas.terisi}</td>
+      <td>${kelas.status}</td>
+      <td>
+        <button
+          class="btn-primary"
+          onclick="tambahKelasKRS(${kelas.id})"
+          ${kelas.status !== 'Dibuka' || kelas.terisi >= kelas.kuota ? 'disabled' : ''}
+        >
+          Tambah
+        </button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function tampilkanDetailKRS() {
+  const tbody = document.getElementById('tabel-detail-krs');
+
+  const detail = dataKRS?.detail || [];
+
+  tbody.innerHTML = detail.map(item => {
+    const kelas = daftarKelasKRS.find(k => k.id === item.kelas_id);
+
+    return `
+      <tr>
+        <td>${item.kelas_id}</td>
+        <td>${kelas ? kelas.kode_mk : '-'}</td>
+        <td>${item.status}</td>
+        <td>
+          ${item.status === 'Terdaftar' ? `
+            <button
+              class="btn-danger"
+              onclick="batalkanKelasKRS(${item.kelas_id})"
+            >
+              Batalkan
+            </button>
+          ` : '-'}
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+
+async function tambahKelasKRS(kelasID) {
+  if (!dataKRS) {
+    return showNotif('Tampilkan KRS terlebih dahulu', true);
+  }
+
+  const payload = {
+    kelas_id: kelasID,
+    batas_sks: dataKRS.batas_sks
+  };
+
+  try {
+    const res = await fetch(`/api/krs/${dataKRS.id}/kelas`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      return showNotif(data.error || 'Gagal menambahkan kelas', true);
+    }
+
+    showNotif(data.pesan || 'Kelas berhasil ditambahkan');
+    await loadKRS();
+  } catch (err) {
+    showNotif('Tidak dapat terhubung ke server', true);
+  }
+}
+
+async function batalkanKelasKRS(kelasID) {
+  if (!dataKRS) return;
+
+  if (!confirm('Yakin ingin membatalkan kelas ini?')) return;
+
+  try {
+    const res = await fetch(
+      `/api/krs/${dataKRS.id}/kelas/${kelasID}`,
+      { method: 'DELETE' }
+    );
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      return showNotif(data.error || 'Gagal membatalkan kelas', true);
+    }
+
+    showNotif(data.pesan || 'Kelas berhasil dibatalkan');
+    await loadKRS();
+  } catch (err) {
+    showNotif('Tidak dapat terhubung ke server', true);
+  }
+}
+
 
   loadMK();
   loadKesetaraan();

@@ -10,6 +10,7 @@ import (
 	"github.com/kresnakar/sistem-krs/internal/database"
 	"github.com/kresnakar/sistem-krs/internal/kelas"
 	"github.com/kresnakar/sistem-krs/internal/kesetaraan"
+	"github.com/kresnakar/sistem-krs/internal/krs"
 	"github.com/kresnakar/sistem-krs/internal/matakuliah"
 	"github.com/kresnakar/sistem-krs/internal/nilai"
 	"github.com/kresnakar/sistem-krs/internal/prasyarat"
@@ -60,14 +61,20 @@ func main() {
 	nilaiHandler := nilai.NewHandler(nilaiService)
 	nilaiHandler.RegisterRoutes(mux)
 
-	// 6. Halaman Web Antarmuka
+	// 6. Registrasi Modul KRS
+	krsRepo := krs.NewRepository(db)
+	krsService := krs.NewService(krsRepo)
+	krsHandler := krs.NewHandler(krsService)
+	krsHandler.RegisterRoutes(mux)
+
+	// 7. Halaman Web Antarmuka
 	mux.Handle("/", http.FileServer(http.Dir("web")))
 
 	log.Println("================================")
-	log.Println("SISTEM KRS - Server berjalan di http://localhost:8080")
+	log.Println("SISTEM KRS - Server berjalan di http://localhost:8081")
 	log.Println("================================")
 
-	if err := http.ListenAndServe(":8080", mux); err != nil {
+	if err := http.ListenAndServe(":8081", mux); err != nil {
 		log.Fatal(err)
 	}
 }
