@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dashboard Dosen Wali — Sistem KRS</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: #f1f5f9;
+    color: #0f172a;
+  }
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px 16px 48px; }
+  header {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 12px; margin-bottom: 20px; flex-wrap: wrap;
+  }
+  h1 { font-size: 22px; margin: 0; }
+  h3 { margin: 0 0 14px; font-size: 17px; }
+  .card {
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 12px;
+    padding: 18px; margin-bottom: 18px; box-shadow: 0 1px 2px rgba(15,23,42,.04);
+  }
+  button {
+    font: inherit; border: 0; border-radius: 8px; padding: 8px 12px;
+    cursor: pointer; font-weight: 600; margin: 2px 4px 2px 0;
+  }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-primary { background: #2563eb; color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+  .btn-secondary { background: #e2e8f0; color: #0f172a; }
+  .btn-secondary:hover:not(:disabled) { background: #cbd5e1; }
+  .btn-danger { background: #dc2626; color: #fff; }
+  .btn-danger:hover:not(:disabled) { background: #b91c1c; }
+  .btn-warn { background: #f59e0b; color: #fff; }
+  .btn-warn:hover:not(:disabled) { background: #d97706; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+  th { background: #f8fafc; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #475569; }
+  .alert { display: none; padding: 11px 14px; border-radius: 8px; margin-bottom: 16px; font-weight: 600; }
+  .alert.show { display: block; }
+  .alert.ok { background: #dcfce7; color: #166534; }
+  .alert.err { background: #fee2e2; color: #991b1b; }
+  .badge { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+  .badge-draft { background: #e2e8f0; color: #334155; }
+  .badge-diajukan { background: #fef3c7; color: #92400e; }
+  .badge-disetujui { background: #dcfce7; color: #166534; }
+  .badge-ditolak { background: #fee2e2; color: #991b1b; }
+  .badge-menunggu { background: #fef3c7; color: #92400e; }
+  .muted { color: #64748b; font-size: 13px; }
+  #detail-krs { display: none; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>Dashboard Dosen Wali — Persetujuan KRS</h1>
+    <form action="/logout" method="POST" style="margin:0;">
+      <button class="btn-secondary" type="submit">Logout</button>
+    </form>
+  </header>
+
+  <div id="notif" class="alert"></div>
+
+  <div class="card">
+    <h3>KRS Mahasiswa Bimbingan</h3>
+    <button class="btn-secondary" onclick="muatKRS()">Muat Ulang</button>
+
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th><th>NIM</th><th>Nama</th><th>Semester</th><th>Status</th>
+          <th>Total SKS</th><th>Diajukan</th><th>Aksi</th>
+        </tr>
+      </thead>
+      <tbody id="tabel-krs"></tbody>
+    </table>
+  </div>
+
+  <div id="detail-krs" class="card">
+    <h3>Detail KRS</h3>
+    <div id="detail-info" class="muted"></div>
+    <table>
+      <thead>
+        <tr><th>Kode MK</th><th>Nama Mata Kuliah</th><th>SKS</th><th>Paralel</th><th>Status</th></tr>
+      </thead>
+      <tbody id="tabel-detail"></tbody>
+    </table>
+    <button class="btn-secondary" onclick="tutupDetail()">Tutup Detail</button>
+  </div>
+
+  <div class="card">
+    <h3>Permintaan Perubahan KRS</h3>
+    <button class="btn-secondary" onclick="muatPerubahan()">Muat Ulang</button>
+
+    <table>
+      <thead>
+        <tr><th>ID</th><th>NIM</th><th>Nama</th><th>Jenis</th><th>Kelas</th><th>Alasan</th><th>Status</th><th>Aksi</th></tr>
+      </thead>
+      <tbody id="tabel-perubahan"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+function showNotif(message, isError = false) {
+  const el = document.getElementById('notif');
+  el.textContent = message;
+  el.className = 'alert show ' + (isError ? 'err' : 'ok');
+  clearTimeout(window.__notifTimer);
+  window.__notifTimer = setTimeout(() => { el.className = 'alert'; }, 5000);
+}
+
+async function api(path, options = {}) {
+  const res = await fetch(path, options);
+  let data = null;
+  try { data = await res.json(); } catch (_) { data = null; }
+
+  if (res.status === 401) {
+    window.location.href = '/login';
+    throw new Error('Session berakhir');
+  }
+  if (!res.ok) {
+    throw new Error((data && data.error) || 'Terjadi kesalahan');
+  }
+  return data;
+}
+
+function badge(status) {
+  const cls = {
+    'Draft': 'badge-draft',
+    'Diajukan': 'badge-diajukan',
+    'Disetujui': 'badge-disetujui',
+    'Ditolak': 'badge-ditolak',
+    'Menunggu': 'badge-menunggu'
+  }[status] || 'badge-draft';
+  return `<span class="badge ${cls}">${status}</span>`;
+}
+
+function formatTanggal(value) {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return '-';
+  return d.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+async function muatKRS() {
+  try {
+    const data = await api('/api/krs/dosen/krs');
+    const tbody = document.getElementById('tabel-krs');
+    if (!data || !data.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="muted">Belum ada KRS bimbingan.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = data.map(k => `
+      <tr>
+        <td>${k.id}</td>
+        <td>${k.nim}</td>
+        <td>${k.nama_mhs}</td>
+        <td>${k.semester_id}</td>
+        <td>${badge(k.status)}</td>
+        <td>${k.total_sks} / ${k.batas_sks}</td>
+        <td>${formatTanggal(k.diajukan_pada)}</td>
+        <td>
+          <button class="btn-secondary" onclick="lihatDetail(${k.id})">Detail</button>
+          ${k.status === 'Diajukan' ? `
+            <button class="btn-primary" onclick="setujuiKRS(${k.id})">Setujui</button>
+            <button class="btn-danger" onclick="tolakKRS(${k.id})">Tolak</button>
+          ` : ''}
+        </td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    showNotif(err.message, true);
+  }
+}
+
+async function setujuiKRS(id) {
+  if (!confirm('Setujui KRS ini?')) return;
+  try {
+    await api(`/api/krs/dosen/krs/${id}/setujui`, { method: 'POST' });
+    showNotif('KRS berhasil disetujui');
+    await muatKRS();
+  } catch (err) {
+    showNotif(err.message, true);
+  }
+}
+
+async function tolakKRS(id) {
+  const catatan = prompt('Alasan penolakan KRS:');
+  if (catatan === null) return;
+  if (!catatan.trim()) return showNotif('Catatan penolakan wajib diisi', true);
+
+  try {
+    await api(`/api/krs/dosen/krs/${id}/tolak`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ catatan })
+    });
+    showNotif('KRS ditolak');
+    await muatKRS();
+  } catch (err) {
+    showNotif(err.message, true);
+  }
+}
+
+async function lihatDetail(id) {
+  try {
+    const data = await api(`/api/krs/dosen/krs/${id}`);
+    const panel = document.getElementById('detail-krs');
+    panel.style.display = 'block';
+
+    document.getElementById('detail-info').innerHTML = `
+      <div><b>NIM:</b> ${data.nim} &nbsp; <b>Status:</b> ${badge(data.status)} &nbsp;
+      <b>Total SKS:</b> ${data.total_sks} / ${data.batas_sks}</div>
+      ${data.catatan_penolakan ? `<div style="color:#991b1b;"><b>Catatan:</b> ${data.catatan_penolakan}</div>` : ''}
+    `;
+
+    const detail = data.detail_lengkap || [];
+    document.getElementById('tabel-detail').innerHTML = detail.length
+      ? detail.map(d => `
+        <tr>
+          <td>${d.kode_mk}</td>
+          <td>${d.nama_mk}</td>
+          <td>${d.sks}</td>
+          <td>${d.kode_paralel}</td>
+          <td>${badge(d.status)}</td>
+        </tr>
+      `).join('')
+      : '<tr><td colspan="5" class="muted">Belum ada kelas.</td></tr>';
+
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (err) {
+    showNotif(err.message, true);
+  }
+}
+
+function tutupDetail() {
+  document.getElementById('detail-krs').style.display = 'none';
+}
+
+async function muatPerubahan() {
+  try {
+    const data = await api('/api/krs/dosen/perubahan');
+    const tbody = document.getElementById('tabel-perubahan');
+    if (!data || !data.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="muted">Belum ada permintaan perubahan.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = data.map(p => {
+      const kelas = (p.detail || []).map(d => `${d.kode_mk} ${d.kode_paralel}`).join(', ');
+      return `
+        <tr>
+          <td>${p.id}</td>
+          <td>${p.nim}</td>
+          <td>${p.nama_mhs}</td>
+          <td>${p.jenis_perubahan}</td>
+          <td>${kelas || '-'}</td>
+          <td>${p.alasan || '-'}</td>
+          <td>${badge(p.status)}</td>
+          <td>
+            ${p.status === 'Menunggu' ? `
+              <button class="btn-primary" onclick="setujuiPerubahan(${p.id})">Setujui</button>
+              <button class="btn-danger" onclick="tolakPerubahan(${p.id})">Tolak</button>
+            ` : '-'}
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    showNotif(err.message, true);
+  }
+}
+
+async function setujuiPerubahan(id) {
+  if (!confirm('Setujui perubahan KRS ini? Perubahan akan langsung diterapkan.')) return;
+  try {
+    await api(`/api/krs/dosen/perubahan/${id}/setujui`, { method: 'POST' });
+    showNotif('Perubahan KRS disetujui');
+    await muatPerubahan();
+    await muatKRS();
+  } catch (err) {
+    showNotif(err.message, true);
+  }
+}
+
+async function tolakPerubahan(id) {
+  const catatan = prompt('Alasan penolakan perubahan:');
+  if (catatan === null) return;
+  if (!catatan.trim()) return showNotif('Catatan penolakan wajib diisi', true);
+
+  try {
+    await api(`/api/krs/dosen/perubahan/${id}/tolak`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ catatan })
+    });
+    showNotif('Perubahan KRS ditolak');
+    await muatPerubahan();
+  } catch (err) {
+    showNotif(err.message, true);
+  }
+}
+
+(async function init() {
+  await muatKRS();
+  await muatPerubahan();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dashboard Mahasiswa — Sistem KRS</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: #f1f5f9;
+    color: #0f172a;
+  }
+  .container { max-width: 1150px; margin: 0 auto; padding: 24px 16px 48px; }
+  header {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 12px; margin-bottom: 20px; flex-wrap: wrap;
+  }
+  h1 { font-size: 22px; margin: 0; }
+  h3 { margin: 0 0 14px; font-size: 17px; }
+  .card {
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 12px;
+    padding: 18px; margin-bottom: 18px; box-shadow: 0 1px 2px rgba(15,23,42,.04);
+  }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 14px; }
+  label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #334155; }
+  input, select, textarea {
+    width: 100%; padding: 9px 11px; border: 1px solid #cbd5e1; border-radius: 8px;
+    font: inherit; background: #fff;
+  }
+  textarea { min-height: 70px; resize: vertical; }
+  button {
+    font: inherit; border: 0; border-radius: 8px; padding: 9px 14px;
+    cursor: pointer; font-weight: 600; margin: 2px 4px 2px 0;
+  }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-primary { background: #2563eb; color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+  .btn-secondary { background: #e2e8f0; color: #0f172a; }
+  .btn-secondary:hover:not(:disabled) { background: #cbd5e1; }
+  .btn-danger { background: #dc2626; color: #fff; }
+  .btn-danger:hover:not(:disabled) { background: #b91c1c; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+  th { background: #f8fafc; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #475569; }
+  .alert { display: none; padding: 11px 14px; border-radius: 8px; margin-bottom: 16px; font-weight: 600; }
+  .alert.show { display: block; }
+  .alert.ok { background: #dcfce7; color: #166534; }
+  .alert.err { background: #fee2e2; color: #991b1b; }
+  .badge { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+  .badge-draft { background: #e2e8f0; color: #334155; }
+  .badge-diajukan { background: #fef3c7; color: #92400e; }
+  .badge-disetujui { background: #dcfce7; color: #166534; }
+  .badge-ditolak { background: #fee2e2; color: #991b1b; }
+  .badge-menunggu { background: #fef3c7; color: #92400e; }
+  .muted { color: #64748b; font-size: 13px; }
+  .info-row { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>Dashboard Mahasiswa — Pengisian KRS</h1>
+    <form action="/logout" method="POST" style="margin:0;">
+      <button class="btn-secondary" type="submit">Logout</button>
+    </form>
+  </header>
+
+  <div id="notif" class="alert"></div>
+
+  <div class="card">
+    <h3>KRS Saya</h3>
+    <div class="grid">
+      <div>
+        <label>Semester ID</label>
+        <input id="semester-id" type="number" min="1" placeholder="contoh: 1" />
+      </div>
+      <div>
+        <label>Semester Aktif</label>
+        <input id="semester-aktif" readonly placeholder="memuat..." />
+      </div>
+    </div>
+
+    <button class="btn-primary" onclick="muatKRS()">Muat KRS</button>
+    <button class="btn-secondary" onclick="muatKelas()">Muat Kelas</button>
+    <button class="btn-secondary" onclick="buatDraf()">Buat Draf</button>
+    <button class="btn-primary" onclick="ajukanKRS()">Ajukan KRS</button>
+
+    <div id="info-krs" class="muted" style="margin-top:14px;">KRS belum dimuat.</div>
+
+    <table>
+      <thead>
+        <tr><th>Kode MK</th><th>Nama Mata Kuliah</th><th>SKS</th><th>Paralel</th><th>Status</th><th>Aksi</th></tr>
+      </thead>
+      <tbody id="tabel-detail-krs"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Kelas Tersedia</h3>
+    <table>
+      <thead>
+        <tr><th>Kode MK</th><th>Nama Mata Kuliah</th><th>Paralel</th><th>Kuota</th><th>Terisi</th><th>Status</th><th>Aksi</th></tr>
+      </thead>
+      <tbody id="tabel-kelas"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Perubahan KRS</h3>
+    <p class="muted">Perubahan hanya bisa diajukan saat masa perubahan dibuka dan KRS sudah disetujui dosen wali.</p>
+
+    <div class="grid">
+      <div>
+        <label>Jenis Perubahan</label>
+        <select id="ubah-jenis" onchange="perbaruiPilihanPerubahan()">
+          <option value="Tambah Kelas">Tambah Kelas</option>
+          <option value="Batal Kelas">Batal Kelas</option>
+        </select>
+      </div>
+      <div>
+        <label>Kelas</label>
+        <select id="ubah-kelas"></select>
+      </div>
+      <div style="grid-column: 1 / -1;">
+        <label>Alasan</label>
+        <textarea id="ubah-alasan" placeholder="Tulis alasan perubahan..."></textarea>
+      </div>
+    </div>
+
+    <button class="btn-primary" onclick="ajukanPerubahan()">Ajukan Perubahan</button>
+
+    <table>
+      <thead>
+        <tr><th>ID</th><th>Jenis</th><th>Kelas</th><th>Alasan</th><th>Status</th><th>Catatan Dosen</th></tr>
+      </thead>
+      <tbody id="tabel-perubahan"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+let dataKRS = null;
+let kelasTersedia = [];
+let semesterAktifID = 0;
+
+function showNotif(message, isError = false) {
+  const el = document.getElementById('notif');
+  el.textContent = message;
+  el.className = 'alert show ' + (isError ? 'err' : 'ok');
+  clearTimeout(window.__notifTimer);
+  window.__notifTimer = setTimeout(() => { el.className = 'alert'; }, 5000);
+}
+
+async function api(path, options = {}) {
+  const res = await fetch(path, options);
+  let data = null;
+  try { data = await res.json(); } catch (_) { data = null; }
+
+  if (res.status === 401) {
+    window.location.href = '/login';
+    throw new Error('Session berakhir');
+  }
+  if (!res.ok) {
+    throw new Error((data && data.error) || 'Terjadi kesalahan');
+  }
+  return data;
+}
+
+function badge(status) {
+  const cls = {
+    'Draft': 'badge-draft',
+    'Diajukan': 'badge-diajukan',
+    'Disetujui': 'badge-disetujui',
+    'Ditolak': 'badge-ditolak',
+    'Menunggu': 'badge-menunggu'
+  }[status] || 'badge-draft';
+  return `<span class="badge ${cls}">${status}</span>`;
+}
+
+function semesterID() {
+  const value = parseInt(document.getElementById('semester-id').value, 10);
+  return Number.isNaN(value) ? 0 : value;
+}
+
+async function muatSemesterAktif() {
+  try {
+    const data = await api('/api/krs/mahasiswa/semester-aktif');
+    if (data && data.semester) {
+      semesterAktifID = data.semester.id;
+      document.getElementById('semester-id').value = data.semester.id;
+      document.getElementById('semester-aktif').value =
+        `${data.semester.tahun_akademik} ${data.semester.jenis}`;
+    }
+  } catch (err) {
+    document.getElementById('semester-aktif').value = 'Belum ada semester aktif';
+  }
+}
+
+async function muatKRS() {
+  const semester = semesterID();
+  if (!semester) return showNotif('Isi semester ID terlebih dahulu', true);
+
+  try {
+    dataKRS = await api(`/api/krs/mahasiswa/${semester}`);
+    renderKRS();
+    await muatPerubahan();
+    showNotif('KRS berhasil dimuat');
+  } catch (err) {
+    dataKRS = null;
+    document.getElementById('info-krs').textContent =
+      'Belum ada KRS untuk semester ini. Klik "Buat Draf" untuk membuat.';
+    document.getElementById('tabel-detail-krs').innerHTML = '';
+    document.getElementById('tabel-perubahan').innerHTML = '';
+    showNotif(err.message, true);
+  }
+}
+
+function renderKRS() {
+  if (!dataKRS) {
+    document.getElementById('info-krs').textContent = 'Belum ada KRS.';
+    document.getElementById('tabel-detail-krs').innerHTML = '';
+    return;
+  }
+
+  const catatan = dataKRS.catatan_penolakan
+    ? `<div class="muted" style="color:#991b1b;">Catatan penolakan: ${dataKRS.catatan_penolakan}</div>`
+    : '';
+
+  document.getElementById('info-krs').innerHTML = `
+    <div class="info-row">
+      <span><b>NIM:</b> ${dataKRS.nim}</span>
+      <span><b>Status:</b> ${badge(dataKRS.status)}</span>
+      <span><b>Total SKS:</b> ${dataKRS.total_sks}</span>
+      <span><b>Batas SKS:</b> ${dataKRS.batas_sks}</span>
+    </div>
+    ${catatan}
+  `;
+
+  const detail = dataKRS.detail_lengkap || [];
+  document.getElementById('tabel-detail-krs').innerHTML = detail.length
+    ? detail.map(item => `
+      <tr>
+        <td>${item.kode_mk}</td>
+        <td>${item.nama_mk}</td>
+        <td>${item.sks}</td>
+        <td>${item.kode_paralel}</td>
+        <td>${badge(item.status)}</td>
+        <td>
+          ${item.status === 'Terdaftar' && (dataKRS.status === 'Draft' || dataKRS.status === 'Ditolak') ? `
+            <button class="btn-danger" onclick="batalkanKelas(${item.kelas_id})">Batalkan</button>
+          ` : '-'}
+        </td>
+      </tr>
+    `).join('')
+    : '<tr><td colspan="6" class="muted">Belum ada kelas yang diambil.</td></tr>';
+
+  perbaruiPilihanPerubahan();
+}
+
+async function buatDraf() {
+  const semester = semesterID();
+  const body = semester ? { semester_id: semester } : {};
+  try {
+    await api('/api/krs/mahasiswa/draft', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    showNotif('Draf KRS berhasil dibuat');
+    await muatKRS();
+    await muatKelas();
+  } catch (err) {
+    showNotif(err.message, true);
+  }
+}
+
+async function muatKelas() {
+  const semester = semesterID();
+  if (!semester) return showNotif('Isi semester ID terlebih dahulu', true);
+
+  try {
+    kelasTersedia = await api(`/api/krs/mahasiswa/kelas/${semester}`);
+    renderKelas();
+    perbaruiPilihanPerubahan();
+    showNotif('Daftar kelas berhasil dimuat');
+  } catch (err) {
+    showNotif(err.message, true);
+  }
+}
+
+function renderKelas() {
+  const tbody = document.getElementById('tabel-kelas');
+  if (!kelasTersedia.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="muted">Tidak ada kelas tersedia.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = kelasTersedia.map(kelas => {
+    const penuh = kelas.terisi >= kelas.kuota;
+    const bisaTambah = dataKRS && (dataKRS.status === 'Draft' || dataKRS.status === 'Ditolak') && !penuh && kelas.status === 'Dibuka';
+    return `
+      <tr>
+        <td>${kelas.kode_mk}</td>
+        <td>${kelas.nama_mk}</td>
+        <td>${kelas.kode_paralel}</td>
+        <td>${kelas.kuota}</td>
+        <td>${kelas.terisi}</td>
+        <td>${kelas.status}</td>
+        <td>
+          <button class="btn-primary" onclick="tambahKelas(${kelas.id})" ${bisaTambah ? '' : 'disabled'}>Tambah</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function tambahKelas(kelasID) {
+  if (!dataKRS) return showNotif('Buat atau muat draf KRS terlebih dahulu', true);
+  try {
+    await api(`/api/krs/mahasiswa/${dataKRS.id}/kelas`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kelas_id: kelasID })
+    });
+    showNotif('Kelas berhasil ditambahkan');
+    await muatKRS();
+    await muatKelas();
+  } catch (err) {
+    showNotif(err.message, true);
+  }
+}
+
+async function batalkanKelas(kelasID) {
+  if (!dataKRS) return;
+  if (!confirm('Yakin ingin membatalkan kelas ini?')) return;
+
+  try {
+    await api(`/api/krs/mahasiswa/${dataKRS.id}/kelas/${kelasID}`, { method: 'DELETE' });
+    showNotif('Kelas berhasil dibatalkan');
+    await muatKRS();
+    await muatKelas();
+  } catch (err) {
+    showNotif(err.message, true);
+  }
+}
+
+async function ajukanKRS() {
+  if (!dataKRS) return showNotif('Belum ada KRS untuk diajukan', true);
+  if (!confirm('Ajukan KRS ini ke dosen wali?')) return;
+
+  try {
+    await api(`/api/krs/mahasiswa/${dataKRS.id}/ajukan`, { method: 'POST' });
+    showNotif('KRS berhasil diajukan');
+    await muatKRS();
+  } catch (err) {
+    showNotif(err.message, true);
+  }
+}
+
+function perbaruiPilihanPerubahan() {
+  const select = document.getElementById('ubah-kelas');
+  if (!select) return;
+
+  const jenis = document.getElementById('ubah-jenis').value;
+  const detail = (dataKRS && dataKRS.detail_lengkap) || [];
+  const terdaftar = new Set(detail.filter(d => d.status === 'Terdaftar').map(d => d.kelas_id));
+
+  let options = [];
+  if (jenis === 'Batal Kelas') {
+    options = detail
+      .filter(d => d.status === 'Terdaftar')
+      .map(d => `<option value="${d.kelas_id}">${d.kode_mk} — ${d.nama_mk} (${d.kode_paralel})</option>`);
+  } else {
+    options = kelasTersedia
+      .filter(k => !terdaftar.has(k.id))
+      .map(k => `<option value="${k.id}">${k.kode_mk} — ${k.nama_mk} (${k.kode_paralel})</option>`);
+  }
+
+  select.innerHTML = options.length
+    ? options.join('')
+    : '<option value="">Tidak ada kelas yang bisa dipilih</option>';
+}
+
+async function ajukanPerubahan() {
+  if (!dataKRS) return showNotif('Belum ada KRS', true);
+  const kelasID = parseInt(document.getElementById('ubah-kelas').value, 10);
+  const alasan = document.getElementById('ubah-alasan').value.trim();
+
+  if (!kelasID) return showNotif('Pilih kelas terlebih dahulu', true);
+
+  try {
+    await api(`/api/krs/mahasiswa/krs/${dataKRS.id}/perubahan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jenis_perubahan: document.getElementById('ubah-jenis').value,
+        alasan,
+        kelas_ids: [kelasID]
+      })
+    });
+    document.getElementById('ubah-alasan').value = '';
+    showNotif('Permintaan perubahan berhasil diajukan');
+    await muatPerubahan();
+  } catch (err) {
+    showNotif(err.message, true);
+  }
+}
+
+async function muatPerubahan() {
+  if (!dataKRS) {
+    document.getElementById('tabel-perubahan').innerHTML = '';
+    return;
+  }
+
+  try {
+    const data = await api(`/api/krs/mahasiswa/krs/${dataKRS.id}/perubahan`);
+    const tbody = document.getElementById('tabel-perubahan');
+    if (!data || !data.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="muted">Belum ada permintaan perubahan.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = data.map(p => {
+      const kelas = (p.detail || []).map(d => `${d.kode_mk} ${d.kode_paralel}`).join(', ');
+      return `
+        <tr>
+          <td>${p.id}</td>
+          <td>${p.jenis_perubahan}</td>
+          <td>${kelas || '-'}</td>
+          <td>${p.alasan || '-'}</td>
+          <td>${badge(p.status)}</td>
+          <td>${p.catatan || '-'}</td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    showNotif(err.message, true);
+  }
+}
+
+(async function init() {
+  await muatSemesterAktif();
+  if (semesterID()) {
+    await muatKRS();
+    await muatKelas();
+  }
+})();
+</script>
+</body>
+</html>

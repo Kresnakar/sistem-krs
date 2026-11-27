@@ -4,21 +4,45 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+
+	"github.com/gorilla/sessions"
+	"github.com/kresnakar/sistem-krs/internal/auth"
 )
 
 type Handler struct {
 	service *Service
+	store   *sessions.CookieStore
 }
 
-func NewHandler(service *Service) *Handler {
+func NewHandler(
+	service *Service,
+	store *sessions.CookieStore,
+) *Handler {
 	return &Handler{
 		service: service,
+		store:   store,
 	}
+}
+
+func (h *Handler) ambilNIMSession(
+	r *http.Request,
+) (string, bool) {
+	session, err := h.store.Get(r, auth.SessionName)
+	if err != nil {
+		return "", false
+	}
+
+	nim, ok := session.Values["nim"].(string)
+	if !ok || nim == "" {
+		return "", false
+	}
+
+	return nim, true
 }
 
 // Mendaftarkan endpoint API KRS
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/krs/{nim}/{semester_id}", h.AmbilKRS)
+	mux.HandleFunc("GET /api/krs/{semester_id}", h.AmbilKRS)
 	mux.HandleFunc("POST /api/krs/{krs_id}/kelas", h.TambahKelas)
 	mux.HandleFunc("DELETE /api/krs/{krs_id}/kelas/{kelas_id}", h.BatalkanKelas)
 }
@@ -28,7 +52,11 @@ func (h *Handler) AmbilKRS(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	nim := r.PathValue("nim")
+	nim, ok := h.ambilNIMSession(r)
+	if !ok {
+		http.Error(w, "Session mahasiswa tidak valid", http.StatusUnauthorized)
+		return
+	}
 
 	semesterID, err := strconv.Atoi(
 		r.PathValue("semester_id"),
@@ -86,6 +114,22 @@ func (h *Handler) TambahKelas(
 		return
 	}
 
+	nim, ok := h.ambilNIMSession(r)
+	if !ok {
+		http.Error(w, "Session mahasiswa tidak valid", http.StatusUnauthorized)
+		return
+	}
+
+	pemilik, err := h.service.ValidasiKepemilikanKRS(r.Context(), krsID, nim)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !pemilik {
+		http.Error(w, "KRS bukan milik Anda", http.StatusForbidden)
+		return
+	}
+
 	var req TambahKelasRequest
 
 	err = json.NewDecoder(r.Body).Decode(&req)
@@ -98,12 +142,18 @@ func (h *Handler) TambahKelas(
 		return
 	}
 
-	if req.KelasID <= 0 || req.BatasSKS <= 0 {
+	if req.KelasID <= 0 {
 		http.Error(
 			w,
-			"Kelas ID dan batas SKS harus valid",
+			"Kelas ID harus valid",
 			http.StatusBadRequest,
 		)
+		return
+	}
+
+	batasSKS, err := h.service.BatasSKSKRS(r.Context(), krsID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -111,7 +161,7 @@ func (h *Handler) TambahKelas(
 		r.Context(),
 		krsID,
 		req.KelasID,
-		req.BatasSKS,
+		batasSKS,
 	)
 
 	if err != nil {
@@ -157,6 +207,22 @@ func (h *Handler) BatalkanKelas(
 			"Kelas ID tidak valid",
 			http.StatusBadRequest,
 		)
+		return
+	}
+
+	nim, ok := h.ambilNIMSession(r)
+	if !ok {
+		http.Error(w, "Session mahasiswa tidak valid", http.StatusUnauthorized)
+		return
+	}
+
+	pemilik, err := h.service.ValidasiKepemilikanKRS(r.Context(), krsID, nim)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !pemilik {
+		http.Error(w, "KRS bukan milik Anda", http.StatusForbidden)
 		return
 	}
 

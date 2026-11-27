@@ -34,7 +34,12 @@
 </head>
 <body>
 <div class="container">
-  <h1>Sistem KRS — Modul Mata Kuliah, Kesetaraan & Prasyarat</h1>
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+    <h1 style="margin-bottom:0;">Dashboard Admin Prodi — Kurikulum &amp; Periode KRS</h1>
+    <form action="/logout" method="POST" style="margin:0;">
+      <button class="btn-secondary" type="submit">Logout</button>
+    </form>
+  </div>
 
   <div id="notif" class="alert"></div>
 
@@ -43,7 +48,7 @@
     <button class="tab-btn" onclick="bukaTab('setara', this)">2. Kesetaraan Kurikulum</button>
     <button class="tab-btn" onclick="bukaTab('prasyarat', this)">3. Prasyarat AND/OR & Deteksi Siklus</button>
     <button class="tab-btn" onclick="bukaTab('evaluasi', this)">4. Evaluasi Prasyarat Mahasiswa</button>
-    <button class="tab-btn" onclick="bukaTab('krs', this)">5. Pengelolaan KRS</button>
+    <button class="tab-btn" onclick="bukaTab('krs', this)">5. Semester &amp; Periode KRS</button>
   </div>
 
   <!-- TAB 1: CRUD MATA KULIAH -->
@@ -153,62 +158,67 @@
     </div>
   </div>
 
-<!-- TAB 5: PENGELOLAAN KRS -->
+<!-- TAB 5: SEMESTER & PERIODE KRS -->
 <div id="tab-krs" class="section">
   <div class="card">
-    <h3>Informasi KRS Mahasiswa</h3>
-
+    <h3 id="form-semester-title">Tambah Semester</h3>
     <div class="grid">
+      <div><label>Tahun Akademik</label><input id="sem-tahun" placeholder="2026/2027" /></div>
       <div>
-        <label>NIM Mahasiswa</label>
-        <input id="krs-nim" value="230003" />
+        <label>Jenis</label>
+        <select id="sem-jenis">
+          <option value="Ganjil">Ganjil</option>
+          <option value="Genap">Genap</option>
+          <option value="Antara">Antara</option>
+        </select>
       </div>
-
       <div>
-        <label>Semester</label>
-        <input id="krs-semester" type="number" value="2" />
+        <label>Status</label>
+        <select id="sem-aktif">
+          <option value="false">Tidak Aktif</option>
+          <option value="true">Aktif</option>
+        </select>
       </div>
     </div>
+    <button class="btn-primary" onclick="simpanSemester()">Simpan Semester</button>
+    <button class="btn-secondary" onclick="resetFormSemester()">Reset Form</button>
 
-    <button class="btn-primary" onclick="loadKRS()">
-      Tampilkan KRS
-    </button>
-
-    <div id="info-krs" style="margin-top: 16px;">
-      Data KRS belum ditampilkan.
-    </div>
-  </div>
-
-  <div class="card">
-    <h3>Daftar Kelas Tersedia</h3>
     <table>
       <thead>
-          <tr>
-            <th>Kode MK</th>
-            <th>Nama Mata Kuliah</th>
-            <th>Paralel</th>
-            <th>Kuota</th>
-            <th>Terisi</th>
-            <th>Status</th>
-            <th>Aksi</th>
-          </tr>
+        <tr><th>ID</th><th>Tahun</th><th>Jenis</th><th>Status</th><th>Aksi</th></tr>
       </thead>
-      <tbody id="tabel-kelas-krs"></tbody>
+      <tbody id="tabel-semester"></tbody>
     </table>
   </div>
 
   <div class="card">
-    <h3>Kelas yang Diambil</h3>
+    <h3 id="form-periode-title">Tambah Periode KRS</h3>
+    <div class="grid">
+      <div>
+        <label>Semester</label>
+        <select id="per-semester"></select>
+      </div>
+      <div><label>Mulai KRS</label><input id="per-mulai" type="datetime-local" /></div>
+      <div><label>Selesai KRS</label><input id="per-selesai" type="datetime-local" /></div>
+      <div><label>Mulai Perubahan</label><input id="per-mulai-ubah" type="datetime-local" /></div>
+      <div><label>Selesai Perubahan</label><input id="per-selesai-ubah" type="datetime-local" /></div>
+      <div><label>Tanggal Mulai Kuliah</label><input id="per-kuliah" type="date" /></div>
+    </div>
+    <button class="btn-primary" onclick="simpanPeriode()">Simpan Periode</button>
+    <button class="btn-secondary" onclick="resetFormPeriode()">Reset Form</button>
+
     <table>
       <thead>
         <tr>
-          <th>Kelas ID</th>
-          <th>Kode MK</th>
+          <th>ID</th>
+          <th>Semester</th>
+          <th>Jendela KRS</th>
+          <th>Jendela Perubahan</th>
           <th>Status</th>
           <th>Aksi</th>
         </tr>
       </thead>
-      <tbody id="tabel-detail-krs"></tbody>
+      <tbody id="tabel-periode"></tbody>
     </table>
   </div>
 </div>
@@ -396,175 +406,213 @@
   }
 
 
-// --- 5. PENGELOLAAN KRS ---
+// --- 5. SEMESTER & PERIODE KRS (ADMIN PRODI) ---
+let modeEditSemester = false;
+let editSemesterID = 0;
+let modeEditPeriode = false;
+let editPeriodeID = 0;
+let daftarSemesterAdmin = [];
+let daftarPeriodeAdmin = [];
 
-let dataKRS = null;
-let daftarKelasKRS = [];
-
-async function loadKRS() {
-  const nim = document.getElementById('krs-nim').value.trim();
-  const semester = document.getElementById('krs-semester').value;
-
-  try {
-    const res = await fetch(`/api/krs/${nim}/${semester}`);
-    const data = await res.json();
-
-    if (!res.ok) {
-      document.getElementById('info-krs').textContent =
-        data.error || 'Gagal mengambil data KRS';
-
-      return showNotif(data.error || 'Gagal mengambil KRS', true);
-    }
-
-    dataKRS = data;
-
-    document.getElementById('info-krs').innerHTML = `
-      <p><b>NIM:</b> ${data.nim}</p>
-      <p><b>Status KRS:</b> ${data.status}</p>
-      <p><b>Total SKS:</b> ${data.total_sks}</p>
-      <p><b>Batas SKS:</b> ${data.batas_sks}</p>
-    `;
-
-await loadKelasKRS();
-tampilkanDetailKRS();
-
-    showNotif('Data KRS berhasil dimuat');
-  } catch (err) {
-    showNotif('Tidak dapat terhubung ke server', true);
-  }
+function formatTanggal(value) {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return value;
+  return d.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' });
 }
 
-async function loadKelasKRS() {
-  const semester = document.getElementById('krs-semester').value;
-
-  try {
-    const res = await fetch(`/api/kelas/semester/${semester}`);
-    const data = await res.json();
-
-    if (!res.ok) {
-      return showNotif(data.error || 'Gagal mengambil daftar kelas', true);
-    }
-
-    daftarKelasKRS = data || [];
-    tampilkanDaftarKelasKRS();
-  } catch (err) {
-    showNotif('Gagal mengambil daftar kelas', true);
-  }
+function keInputTanggal(value) {
+  if (!value) return '';
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return '';
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+async function loadSemester() {
+  const res = await fetch('/api/krs/admin/semester');
+  const data = await res.json();
+  if (!res.ok) return showNotif(data.error || 'Gagal memuat semester', true);
 
-function tampilkanDaftarKelasKRS() {
-  const tbody = document.getElementById('tabel-kelas-krs');
-
-  tbody.innerHTML = daftarKelasKRS.map(kelas => `
+  daftarSemesterAdmin = data || [];
+  document.getElementById('tabel-semester').innerHTML = daftarSemesterAdmin.map(s => `
     <tr>
-      <td>${kelas.kode_mk}</td>
-      <td>${kelas.nama_mk || '-'}</td>
-      <td>${kelas.kode_paralel}</td>
-      <td>${kelas.kuota}</td>
-      <td>${kelas.terisi}</td>
-      <td>${kelas.status}</td>
+      <td>${s.id}</td>
+      <td>${s.tahun_akademik}</td>
+      <td>${s.jenis}</td>
+      <td>${s.status_aktif ? 'Aktif' : '-'}</td>
+      <td><button class="btn-secondary" onclick='editSemester(${JSON.stringify(s)})'>Edit</button></td>
+    </tr>
+  `).join('');
+
+  document.getElementById('per-semester').innerHTML = daftarSemesterAdmin.map(s =>
+    `<option value="${s.id}">${s.tahun_akademik} ${s.jenis}</option>`
+  ).join('');
+}
+
+function resetFormSemester() {
+  modeEditSemester = false;
+  editSemesterID = 0;
+  document.getElementById('form-semester-title').textContent = 'Tambah Semester';
+  document.getElementById('sem-tahun').value = '';
+  document.getElementById('sem-jenis').value = 'Ganjil';
+  document.getElementById('sem-aktif').value = 'false';
+}
+
+function editSemester(s) {
+  modeEditSemester = true;
+  editSemesterID = s.id;
+  document.getElementById('form-semester-title').textContent = 'Ubah Semester #' + s.id;
+  document.getElementById('sem-tahun').value = s.tahun_akademik;
+  document.getElementById('sem-jenis').value = s.jenis;
+  document.getElementById('sem-aktif').value = String(s.status_aktif);
+}
+
+async function simpanSemester() {
+  const payload = {
+    tahun_akademik: document.getElementById('sem-tahun').value.trim(),
+    jenis: document.getElementById('sem-jenis').value,
+    status_aktif: document.getElementById('sem-aktif').value === 'true'
+  };
+  if (!payload.tahun_akademik) return showNotif('Tahun akademik wajib diisi', true);
+
+  const url = modeEditSemester
+    ? `/api/krs/admin/semester/${editSemesterID}`
+    : '/api/krs/admin/semester';
+  const method = modeEditSemester ? 'PUT' : 'POST';
+
+  const res = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  const data = await res.json();
+  if (!res.ok) return showNotif(data.error || 'Gagal menyimpan semester', true);
+
+  showNotif('Semester berhasil disimpan');
+  resetFormSemester();
+  await loadSemester();
+}
+
+async function loadPeriode() {
+  const res = await fetch('/api/krs/admin/periode');
+  const data = await res.json();
+  if (!res.ok) return showNotif(data.error || 'Gagal memuat periode', true);
+
+  daftarPeriodeAdmin = data || [];
+  const namaSemester = {};
+  daftarSemesterAdmin.forEach(s => {
+    namaSemester[s.id] = `${s.tahun_akademik} ${s.jenis}`;
+  });
+
+  document.getElementById('tabel-periode').innerHTML = daftarPeriodeAdmin.map(p => `
+    <tr>
+      <td>${p.id}</td>
+      <td>${namaSemester[p.semester_id] || p.semester_id}</td>
+      <td>${formatTanggal(p.mulai_krs)}<br>s.d. ${formatTanggal(p.selesai_krs)}</td>
+      <td>${formatTanggal(p.mulai_perubahan)}<br>s.d. ${formatTanggal(p.selesai_perubahan)}</td>
+      <td>KRS: <b>${p.krs_dibuka ? 'Buka' : 'Tutup'}</b><br>Perubahan: <b>${p.perubahan_dibuka ? 'Buka' : 'Tutup'}</b></td>
       <td>
-        <button
-          class="btn-primary"
-          onclick="tambahKelasKRS(${kelas.id})"
-          ${kelas.status !== 'Dibuka' || kelas.terisi >= kelas.kuota ? 'disabled' : ''}
-        >
-          Tambah
-        </button>
+        <button class="btn-secondary" onclick='editPeriode(${JSON.stringify(p)})'>Edit</button>
+        <button class="btn-primary" onclick="bukaJendela(${p.id}, 'krs')">Buka KRS</button>
+        <button class="btn-warn" onclick="tutupJendela(${p.id}, 'krs')">Tutup KRS</button>
+        <button class="btn-primary" onclick="bukaJendela(${p.id}, 'perubahan')">Buka Perubahan</button>
+        <button class="btn-warn" onclick="tutupJendela(${p.id}, 'perubahan')">Tutup Perubahan</button>
       </td>
     </tr>
   `).join('');
 }
 
-function tampilkanDetailKRS() {
-  const tbody = document.getElementById('tabel-detail-krs');
-
-  const detail = dataKRS?.detail || [];
-
-  tbody.innerHTML = detail.map(item => {
-    const kelas = daftarKelasKRS.find(k => k.id === item.kelas_id);
-
-    return `
-      <tr>
-        <td>${item.kelas_id}</td>
-        <td>${kelas ? kelas.kode_mk : '-'}</td>
-        <td>${item.status}</td>
-        <td>
-          ${item.status === 'Terdaftar' ? `
-            <button
-              class="btn-danger"
-              onclick="batalkanKelasKRS(${item.kelas_id})"
-            >
-              Batalkan
-            </button>
-          ` : '-'}
-        </td>
-      </tr>
-    `;
-  }).join('');
+function resetFormPeriode() {
+  modeEditPeriode = false;
+  editPeriodeID = 0;
+  document.getElementById('form-periode-title').textContent = 'Tambah Periode KRS';
+  document.getElementById('per-mulai').value = '';
+  document.getElementById('per-selesai').value = '';
+  document.getElementById('per-mulai-ubah').value = '';
+  document.getElementById('per-selesai-ubah').value = '';
+  document.getElementById('per-kuliah').value = '';
 }
 
+function editPeriode(p) {
+  modeEditPeriode = true;
+  editPeriodeID = p.id;
+  document.getElementById('form-periode-title').textContent = 'Ubah Periode #' + p.id;
+  document.getElementById('per-semester').value = p.semester_id;
+  document.getElementById('per-mulai').value = keInputTanggal(p.mulai_krs);
+  document.getElementById('per-selesai').value = keInputTanggal(p.selesai_krs);
+  document.getElementById('per-mulai-ubah').value = keInputTanggal(p.mulai_perubahan);
+  document.getElementById('per-selesai-ubah').value = keInputTanggal(p.selesai_perubahan);
+  document.getElementById('per-kuliah').value = keInputTanggal(p.tanggal_mulai_kuliah).slice(0, 10);
+}
 
-async function tambahKelasKRS(kelasID) {
-  if (!dataKRS) {
-    return showNotif('Tampilkan KRS terlebih dahulu', true);
-  }
-
+async function simpanPeriode() {
   const payload = {
-    kelas_id: kelasID,
-    batas_sks: dataKRS.batas_sks
+    semester_id: parseInt(document.getElementById('per-semester').value, 10),
+    mulai_krs: document.getElementById('per-mulai').value,
+    selesai_krs: document.getElementById('per-selesai').value,
+    mulai_perubahan: document.getElementById('per-mulai-ubah').value,
+    selesai_perubahan: document.getElementById('per-selesai-ubah').value,
+    tanggal_mulai_kuliah: document.getElementById('per-kuliah').value
   };
 
-  try {
-    const res = await fetch(`/api/krs/${dataKRS.id}/kelas`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(payload)
-    });
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      return showNotif(data.error || 'Gagal menambahkan kelas', true);
-    }
-
-    showNotif(data.pesan || 'Kelas berhasil ditambahkan');
-    await loadKRS();
-  } catch (err) {
-    showNotif('Tidak dapat terhubung ke server', true);
+  if (!payload.semester_id || !payload.mulai_krs || !payload.selesai_krs ||
+      !payload.mulai_perubahan || !payload.selesai_perubahan) {
+    return showNotif('Semester dan semua tanggal wajib diisi', true);
   }
+
+  const url = modeEditPeriode
+    ? `/api/krs/admin/periode/${editPeriodeID}`
+    : '/api/krs/admin/periode';
+  const method = modeEditPeriode ? 'PUT' : 'POST';
+
+  const res = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  const data = await res.json();
+  if (!res.ok) return showNotif(data.error || 'Gagal menyimpan periode', true);
+
+  showNotif('Periode berhasil disimpan');
+  resetFormPeriode();
+  await loadPeriode();
 }
 
-async function batalkanKelasKRS(kelasID) {
-  if (!dataKRS) return;
+async function bukaJendela(id, jenis) {
+  const res = await fetch(`/api/krs/admin/periode/${id}/buka`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jenis })
+  });
+  const data = await res.json();
+  if (!res.ok) return showNotif(data.error || 'Gagal membuka periode', true);
+  showNotif('Periode ' + jenis + ' dibuka (7 hari ke depan)');
+  await loadPeriode();
+}
 
-  if (!confirm('Yakin ingin membatalkan kelas ini?')) return;
+async function tutupJendela(id, jenis) {
+  if (!confirm(`Tutup jendela ${jenis} sekarang?`)) return;
+  const res = await fetch(`/api/krs/admin/periode/${id}/tutup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jenis })
+  });
+  const data = await res.json();
+  if (!res.ok) return showNotif(data.error || 'Gagal menutup periode', true);
+  showNotif('Jendela ' + jenis + ' ditutup');
+  await loadPeriode();
+}
 
-  try {
-    const res = await fetch(
-      `/api/krs/${dataKRS.id}/kelas/${kelasID}`,
-      { method: 'DELETE' }
-    );
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      return showNotif(data.error || 'Gagal membatalkan kelas', true);
-    }
-
-    showNotif(data.pesan || 'Kelas berhasil dibatalkan');
-    await loadKRS();
-  } catch (err) {
-    showNotif('Tidak dapat terhubung ke server', true);
-  }
+async function initAdmin() {
+  await loadMK();
+  await loadKesetaraan();
+  await loadSemester();
+  await loadPeriode();
 }
 
 
-  loadMK();
-  loadKesetaraan();
+  initAdmin();
 </script>
 </body>
 </html>

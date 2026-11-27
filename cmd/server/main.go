@@ -110,15 +110,71 @@ func main() {
 		)
 	}
 
-	rootMux.Handle("/mahasiswa", placeholder("Mahasiswa"))
-	rootMux.Handle("/dosen", placeholder("Dosen Wali"))
 	rootMux.Handle("/kaprodi", placeholder("Kaprodi"))
+
+	// Halaman dashboard Mahasiswa dan Dosen Wali.
+	mahasiswaPage := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "web/mahasiswa.html")
+	})
+	rootMux.Handle(
+		"/mahasiswa",
+		auth.RequireAuth(store)(
+			auth.RequireRole(store, "Mahasiswa")(mahasiswaPage),
+		),
+	)
+
+	dosenPage := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "web/dosen.html")
+	})
+	rootMux.Handle(
+		"/dosen",
+		auth.RequireAuth(store)(
+			auth.RequireRole(store, "Dosen Wali")(dosenPage),
+		),
+	)
 
 	// 6. Modul KRS (dari feature/krs) — didaftarkan ke rootMux
 	krsRepo := krs.NewRepository(db)
 	krsService := krs.NewService(krsRepo)
-	krsHandler := krs.NewHandler(krsService)
-	krsHandler.RegisterRoutes(rootMux)
+	krsHandler := krs.NewHandler(krsService, store)
+
+	krsMux := http.NewServeMux()
+	krsHandler.RegisterRoutes(krsMux)
+
+	rootMux.Handle(
+		"/api/krs/",
+		auth.RequireAuth(store)(
+			auth.RequireRole(store, "Mahasiswa")(krsMux),
+		),
+	)
+
+	// Pemisahan hak akses modul KRS per role.
+	krsAdminMux := http.NewServeMux()
+	krs.NewPeriodeHandler(krsService).RegisterRoutes(krsAdminMux)
+	rootMux.Handle(
+		"/api/krs/admin/",
+		auth.RequireAuth(store)(
+			auth.RequireRole(store, "Admin Prodi")(krsAdminMux),
+		),
+	)
+
+	krsDosenMux := http.NewServeMux()
+	krs.NewDosenHandler(krsService, store).RegisterRoutes(krsDosenMux)
+	rootMux.Handle(
+		"/api/krs/dosen/",
+		auth.RequireAuth(store)(
+			auth.RequireRole(store, "Dosen Wali")(krsDosenMux),
+		),
+	)
+
+	krsMahasiswaMux := http.NewServeMux()
+	krs.NewMahasiswaHandler(krsService, store).RegisterRoutes(krsMahasiswaMux)
+	rootMux.Handle(
+		"/api/krs/mahasiswa/",
+		auth.RequireAuth(store)(
+			auth.RequireRole(store, "Mahasiswa")(krsMahasiswaMux),
+		),
+	)
 
 	// Halaman utama
 	rootMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

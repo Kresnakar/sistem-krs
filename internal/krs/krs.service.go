@@ -10,6 +10,20 @@ type Service struct {
 	repo *Repository
 }
 
+// Memeriksa apakah KRS dimiliki oleh mahasiswa yang sedang login.
+func (s *Service) ValidasiKepemilikanKRS(
+	ctx context.Context,
+	krsID int,
+	nim string,
+) (bool, error) {
+	nimPemilik, err := s.repo.GetNIMByKRS(ctx, krsID)
+	if err != nil {
+		return false, err
+	}
+
+	return nimPemilik == nim, nil
+}
+
 func NewService(repo *Repository) *Service {
 	return &Service{
 		repo: repo,
@@ -85,6 +99,14 @@ func (s *Service) TambahKelas(
 		return err
 	}
 
+	semesterID, err := s.repo.GetSemesterIDByKRS(ctx, krsID)
+	if err != nil {
+		return err
+	}
+	if err := s.ValidasiJendelaKRS(ctx, semesterID); err != nil {
+		return err
+	}
+
 	err = s.ValidasiStatusKelas(ctx, kelasID)
 	if err != nil {
 		return err
@@ -114,6 +136,18 @@ func (s *Service) TambahKelas(
 		return errors.New("kelas sudah terdaftar di KRS")
 	}
 
+	// Validasi prasyarat mata kuliah.
+	err = s.ValidasiPrasyarat(ctx, krsID, kelasID)
+	if err != nil {
+		return err
+	}
+
+	// Validasi bentrok jadwal.
+	err = s.ValidasiBentrokJadwal(ctx, krsID, kelasID)
+	if err != nil {
+		return err
+	}
+
 	err = s.ValidasiKuotaKelas(ctx, kelasID)
 	if err != nil {
 		return err
@@ -141,6 +175,14 @@ func (s *Service) BatalkanKelas(
 
 	err := s.ValidasiStatusKRS(ctx, krsID)
 	if err != nil {
+		return err
+	}
+
+	semesterID, err := s.repo.GetSemesterIDByKRS(ctx, krsID)
+	if err != nil {
+		return err
+	}
+	if err := s.ValidasiJendelaKRS(ctx, semesterID); err != nil {
 		return err
 	}
 
@@ -289,8 +331,173 @@ func (s *Service) ValidasiStatusKRS(
 		return err
 	}
 
-	if status != "Draft" {
+	if status != "Draft" && status != "Ditolak" {
 		return ErrKRSBukanDraft
+	}
+
+	return nil
+}
+
+func (s *Service) ValidasiPrasyarat(
+	ctx context.Context,
+	krsID int,
+	kelasID int,
+) error {
+
+	nim, err := s.repo.GetNIMByKRS(ctx, krsID)
+	if err != nil {
+		return err
+	}
+
+	kodeMK, err := s.repo.GetKodeMKByKelas(ctx, kelasID)
+	if err != nil {
+		return err
+	}
+
+	nodes, err := s.repo.GetPrasyaratNodes(ctx, kodeMK)
+	if err != nil {
+		return err
+	}
+
+	// Tidak memiliki prasyarat.
+	if len(nodes) == 0 {
+		return nil
+	}
+
+	anak := make(map[int][]PrasyaratNode)
+	var roots []PrasyaratNode
+
+	for _, node := range nodes {
+		if node.ParentID == nil {
+			roots = append(roots, node)
+		} else {
+			anak[*node.ParentID] = append(
+				anak[*node.ParentID],
+				node,
+			)
+		}
+	}
+
+	// Semua root harus terpenuhi.
+	for _, root := range roots {
+		terpenuhi, err := s.EvaluasiPrasyarat(
+			ctx,
+			nim,
+			root,
+			anak,
+		)
+
+		if err != nil {
+			return err
+		}
+
+		if !terpenuhi {
+			return errors.New(
+				"prasyarat mata kuliah belum terpenuhi",
+			)
+		}
+	}
+
+	return nil
+}
+
+func (s *Service) EvaluasiPrasyarat(
+	ctx context.Context,
+	nim string,
+	node PrasyaratNode,
+	anak map[int][]PrasyaratNode,
+) (bool, error) {
+
+	switch node.Tipe {
+
+	case "LEAF":
+		return s.repo.CekPrasyaratLulus(
+			ctx,
+			nim,
+			node.KodeMKSyarat,
+			node.NilaiMinimal,
+		)
+
+	case "AND":
+		children := anak[node.ID]
+
+		if len(children) == 0 {
+			return false, errors.New(
+				"struktur prasyarat AND tidak memiliki anak",
+			)
+		}
+
+		for _, child := range children {
+			lulus, err := s.EvaluasiPrasyarat(
+				ctx,
+				nim,
+				child,
+				anak,
+			)
+
+			if err != nil {
+				return false, err
+			}
+
+			if !lulus {
+				return false, nil
+			}
+		}
+
+		return true, nil
+
+	case "OR":
+		children := anak[node.ID]
+
+		if len(children) == 0 {
+			return false, errors.New(
+				"struktur prasyarat OR tidak memiliki anak",
+			)
+		}
+
+		for _, child := range children {
+			lulus, err := s.EvaluasiPrasyarat(
+				ctx,
+				nim,
+				child,
+				anak,
+			)
+
+			if err != nil {
+				return false, err
+			}
+
+			if lulus {
+				return true, nil
+			}
+		}
+
+		return false, nil
+	}
+
+	return false, errors.New("tipe prasyarat tidak valid")
+}
+
+func (s *Service) ValidasiBentrokJadwal(
+	ctx context.Context,
+	krsID int,
+	kelasID int,
+) error {
+
+	bentrok, err := s.repo.CekBentrokJadwal(
+		ctx,
+		krsID,
+		kelasID,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	if bentrok {
+		return errors.New(
+			"jadwal kelas bentrok dengan kelas lain yang sudah terdaftar",
+		)
 	}
 
 	return nil

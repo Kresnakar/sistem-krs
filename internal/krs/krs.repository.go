@@ -12,6 +12,14 @@ type Repository struct {
 	db *sql.DB
 }
 
+type PrasyaratNode struct {
+	ID           int
+	ParentID     *int
+	Tipe         string
+	KodeMKSyarat string
+	NilaiMinimal string
+}
+
 func NewRepository(db *sql.DB) *Repository {
 	return &Repository{db: db}
 }
@@ -325,4 +333,156 @@ func (r *Repository) CekKelasTerdaftar(
 	).Scan(&terdaftar)
 
 	return terdaftar, err
+}
+
+func (r *Repository) GetNIMByKRS(
+	ctx context.Context,
+	krsID int,
+) (string, error) {
+	var nim string
+
+	query := `SELECT nim FROM krs WHERE id = ?`
+
+	err := r.db.QueryRowContext(ctx, query, krsID).Scan(&nim)
+	return nim, err
+}
+
+func (r *Repository) GetKodeMKByKelas(
+	ctx context.Context,
+	kelasID int,
+) (string, error) {
+	var kodeMK string
+
+	query := `SELECT kode_mk FROM kelas WHERE id = ?`
+
+	err := r.db.QueryRowContext(ctx, query, kelasID).Scan(&kodeMK)
+	return kodeMK, err
+}
+
+func (r *Repository) GetPrasyaratNodes(
+	ctx context.Context,
+	kodeMK string,
+) ([]PrasyaratNode, error) {
+
+	query := `
+		SELECT id, parent_id, tipe,
+		       kode_mk_syarat, nilai_minimal
+		FROM prasyarat_node
+		WHERE kode_mk = ?
+		ORDER BY id ASC
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, kodeMK)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var nodes []PrasyaratNode
+
+	for rows.Next() {
+		var node PrasyaratNode
+		var parentID sql.NullInt64
+		var kodeSyarat sql.NullString
+		var nilaiMinimal sql.NullString
+
+		err := rows.Scan(
+			&node.ID,
+			&parentID,
+			&node.Tipe,
+			&kodeSyarat,
+			&nilaiMinimal,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if parentID.Valid {
+			id := int(parentID.Int64)
+			node.ParentID = &id
+		}
+
+		if kodeSyarat.Valid {
+			node.KodeMKSyarat = kodeSyarat.String
+		}
+
+		if nilaiMinimal.Valid {
+			node.NilaiMinimal = nilaiMinimal.String
+		}
+
+		nodes = append(nodes, node)
+	}
+
+	return nodes, rows.Err()
+}
+
+func (r *Repository) CekPrasyaratLulus(
+	ctx context.Context,
+	nim string,
+	kodeMK string,
+	nilaiMinimal string,
+) (bool, error) {
+
+	query := `
+		SELECT EXISTS (
+			SELECT 1
+			FROM riwayat_nilai rn
+			JOIN skala_nilai nilai
+				ON nilai.nilai_huruf = rn.nilai_huruf
+			JOIN skala_nilai minimal
+				ON minimal.nilai_huruf = ?
+			WHERE rn.nim = ?
+			  AND rn.kode_mk = ?
+			  AND rn.lulus = 1
+			  AND nilai.bobot >= minimal.bobot
+		)
+	`
+
+	var lulus bool
+
+	err := r.db.QueryRowContext(
+		ctx,
+		query,
+		nilaiMinimal,
+		nim,
+		kodeMK,
+	).Scan(&lulus)
+
+	return lulus, err
+}
+
+func (r *Repository) CekBentrokJadwal(
+	ctx context.Context,
+	krsID int,
+	kelasID int,
+) (bool, error) {
+
+	query := `
+		SELECT EXISTS (
+			SELECT 1
+			FROM jadwal_kelas jadwal_baru
+			JOIN jadwal_kelas jadwal_lama
+				ON jadwal_baru.hari = jadwal_lama.hari
+			   AND jadwal_baru.jam_mulai < jadwal_lama.jam_selesai
+			   AND jadwal_baru.jam_selesai > jadwal_lama.jam_mulai
+			JOIN krs_detail kd
+				ON kd.kelas_id = jadwal_lama.kelas_id
+			WHERE jadwal_baru.kelas_id = ?
+			  AND kd.krs_id = ?
+			  AND kd.status = 'Terdaftar'
+			  AND kd.kelas_id <> ?
+		)
+	`
+
+	var bentrok bool
+
+	err := r.db.QueryRowContext(
+		ctx,
+		query,
+		kelasID,
+		krsID,
+		kelasID,
+	).Scan(&bentrok)
+
+	return bentrok, err
 }
