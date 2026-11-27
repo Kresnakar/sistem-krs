@@ -11,6 +11,7 @@ import (
 	"github.com/kresnakar/sistem-krs/internal/database"
 	"github.com/kresnakar/sistem-krs/internal/kelas"
 	"github.com/kresnakar/sistem-krs/internal/kesetaraan"
+	"github.com/kresnakar/sistem-krs/internal/krs"
 	"github.com/kresnakar/sistem-krs/internal/matakuliah"
 	"github.com/kresnakar/sistem-krs/internal/nilai"
 	"github.com/kresnakar/sistem-krs/internal/prasyarat"
@@ -113,6 +114,12 @@ func main() {
 	rootMux.Handle("/dosen", placeholder("Dosen Wali"))
 	rootMux.Handle("/kaprodi", placeholder("Kaprodi"))
 
+	// 6. Modul KRS (dari feature/krs) — didaftarkan ke rootMux
+	krsRepo := krs.NewRepository(db)
+	krsService := krs.NewService(krsRepo)
+	krsHandler := krs.NewHandler(krsService)
+	krsHandler.RegisterRoutes(rootMux)
+
 	// Halaman utama
 	rootMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
@@ -123,10 +130,10 @@ func main() {
 	})
 
 	log.Println("================================")
-	log.Println("SISTEM KRS - Server berjalan di http://localhost:8080")
+	log.Println("SISTEM KRS - Server berjalan di http://localhost:8081")
 	log.Println("================================")
 
-	if err := http.ListenAndServe(":8080", rootMux); err != nil {
+	if err := http.ListenAndServe(":8081", rootMux); err != nil {
 		log.Fatal(err)
 	}
 }
