@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -29,6 +30,7 @@ var (
 	ErrKonfirmasiPeriodePerubahan  = errors.New("tawaran harus diproses melalui permintaan perubahan KRS")
 	ErrPeriodePerubahanTutup       = errors.New("periode perubahan KRS sudah ditutup")
 	ErrPermintaanPerubahanSudahAda = errors.New("permintaan tambah kelas untuk tawaran ini sudah tersedia")
+	ErrPeriodeDaftarTungguTutup    = errors.New("periode daftar tunggu sudah ditutup")
 )
 
 type Repository struct {
@@ -1375,3 +1377,261 @@ func (r *Repository) GetKelasIDByAntrean(
 
 	return kelasID, nil
 }
+
+// TandaiTawaranDitolak melepaskan kursi yang ditahan
+// setelah permintaan perubahan KRS ditolak dosen wali.
+func (r *Repository) TandaiTawaranDitolak(
+	ctx context.Context,
+	permintaanID int,
+) (int, bool, error) {
+
+	if permintaanID <= 0 {
+		return 0, false, errors.New("ID permintaan perubahan tidak valid")
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, false, err
+	}
+	defer tx.Rollback()
+
+	var antreanID int
+	var kelasID int
+	var statusAntrean string
+	var statusPermintaan string
+
+	err = tx.QueryRowContext(ctx, `
+		SELECT
+			dt.id,
+			dt.kelas_id,
+			dt.status,
+			p.status
+		FROM permintaan_perubahan p
+		JOIN krs k ON k.id = p.krs_id
+		JOIN permintaan_perubahan_detail pd
+			ON pd.permintaan_id = p.id
+		JOIN daftar_tunggu dt
+			ON dt.id = pd.daftar_tunggu_id
+		WHERE p.id = ?
+		  AND p.jenis_perubahan = 'Tambah Kelas'
+		  AND pd.daftar_tunggu_id IS NOT NULL
+		  AND pd.kelas_id = dt.kelas_id
+		  AND k.nim = dt.nim
+		LIMIT 1
+		FOR UPDATE
+	`, permintaanID).Scan(
+		&antreanID,
+		&kelasID,
+		&statusAntrean,
+		&statusPermintaan,
+	)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		// Permintaan tidak berasal dari daftar tunggu.
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+
+	if statusPermintaan != "Ditolak" {
+		return kelasID, false, errors.New(
+			"permintaan perubahan belum berstatus Ditolak",
+		)
+	}
+
+	switch statusAntrean {
+	case string(StatusDiterima):
+		_, err = tx.ExecContext(ctx, `
+			UPDATE daftar_tunggu
+			SET status = 'Ditolak',
+			    batas_konfirmasi = NULL
+			WHERE id = ?
+			  AND status = 'Diterima'
+		`, antreanID)
+
+		if err != nil {
+			return kelasID, false, err
+		}
+
+	case string(StatusDitolak):
+		// Sudah pernah dilepaskan. Izinkan promosi dicoba ulang.
+
+	default:
+		return kelasID, false, fmt.Errorf(
+			"status antrean tidak sesuai: %s",
+			statusAntrean,
+		)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return kelasID, false, err
+	}
+
+	return kelasID, true, nil
+}
+
+
+func (r *Repository) PeriodeDaftarTungguTerbuka(
+	ctx context.Context,
+	kelasID int,
+) (bool, error) {
+
+	var terbuka bool
+
+	err := r.db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM kelas k
+			JOIN semester s ON s.id = k.semester_id
+			JOIN periode_krs p ON p.semester_id = k.semester_id
+			WHERE k.id = ?
+			  AND s.status_aktif = 1
+			  AND (
+				NOW() BETWEEN p.mulai_krs AND p.selesai_krs
+				OR
+				NOW() BETWEEN p.mulai_perubahan AND p.selesai_perubahan
+			  )
+		)
+	`, kelasID).Scan(&terbuka)
+
+	return terbuka, err
+}
+
+
+func (r *Repository) ProsesBatasWaktuKelas(
+	ctx context.Context,
+	kelasID int,
+) (bool, error) {
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	// Kunci kelas agar pemrosesan batas waktu
+	// tidak bertabrakan dengan proses promosi.
+	var semesterID int
+
+	err = tx.QueryRowContext(ctx, `
+		SELECT semester_id
+		FROM kelas
+		WHERE id = ?
+		FOR UPDATE
+	`, kelasID).Scan(&semesterID)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, ErrKelasTidakDitemukan
+	}
+	if err != nil {
+		return false, err
+	}
+
+	// Periksa apakah periode perubahan sudah berakhir.
+	var ditutup bool
+
+	err = tx.QueryRowContext(ctx, `
+		SELECT NOW() > selesai_perubahan
+		FROM periode_krs
+		WHERE semester_id = ?
+	`, semesterID).Scan(&ditutup)
+
+	if err != nil {
+		return false, err
+	}
+
+	if ditutup {
+		// Tutup seluruh antrean yang belum memperoleh
+		// atau belum menyelesaikan tawaran kursi.
+		// Diterima tidak diubah karena masih bisa memiliki
+		// permintaan perubahan yang menunggu dosen wali.
+		_, err = tx.ExecContext(ctx, `
+			UPDATE daftar_tunggu
+			SET status = 'Kedaluwarsa',
+			    batas_konfirmasi = NULL
+			WHERE kelas_id = ?
+			  AND status IN (
+				'Menunggu',
+				'Dilewati',
+				'MenungguKonfirmasi'
+			  )
+		`, kelasID)
+
+		if err != nil {
+			return false, err
+		}
+	} else {
+		// Kedaluwarsakan tawaran yang sudah melewati
+		// batas konfirmasi 24 jam.
+		_, err = tx.ExecContext(ctx, `
+			UPDATE daftar_tunggu
+			SET status = 'Kedaluwarsa',
+			    batas_konfirmasi = NULL
+			WHERE kelas_id = ?
+			  AND status = 'MenungguKonfirmasi'
+			  AND batas_konfirmasi IS NOT NULL
+			  AND batas_konfirmasi <= NOW()
+		`, kelasID)
+
+		if err != nil {
+			return false, err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+
+	return ditutup, nil
+}
+
+
+func (r *Repository) ListKelasPerluDiproses(
+	ctx context.Context,
+) ([]int, error) {
+
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT DISTINCT dt.kelas_id
+		FROM daftar_tunggu dt
+		JOIN kelas k ON k.id = dt.kelas_id
+		JOIN periode_krs p ON p.semester_id = k.semester_id
+		WHERE (
+			dt.status = 'MenungguKonfirmasi'
+			AND dt.batas_konfirmasi IS NOT NULL
+			AND dt.batas_konfirmasi <= NOW()
+		)
+		OR (
+			NOW() > p.selesai_perubahan
+			AND dt.status IN (
+				'Menunggu',
+				'Dilewati',
+				'MenungguKonfirmasi'
+			)
+		)
+	`)
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var kelasIDs []int
+
+	for rows.Next() {
+		var kelasID int
+
+		if err := rows.Scan(&kelasID); err != nil {
+			return nil, err
+		}
+
+		kelasIDs = append(kelasIDs, kelasID)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return kelasIDs, nil
+}
+

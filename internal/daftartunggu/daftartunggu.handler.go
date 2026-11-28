@@ -124,7 +124,8 @@ func (h *Handler) handleError(
 		errors.Is(err, ErrKapasitasTidakKonsisten),
 		errors.Is(err, ErrKonfirmasiPeriodePerubahan),
 		errors.Is(err, ErrPeriodePerubahanTutup),
-		errors.Is(err, ErrPermintaanPerubahanSudahAda):
+		errors.Is(err, ErrPermintaanPerubahanSudahAda),
+		errors.Is(err, ErrPeriodeDaftarTungguTutup):
 		writeError(w, http.StatusConflict, err.Error())
 
 	case errors.Is(err, ErrTidakMemenuhiSyarat),
