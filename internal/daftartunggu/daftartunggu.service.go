@@ -102,6 +102,15 @@ func (s *Service) MasukAntrean(
 		return nil, ErrKelasIDTidakValid
 	}
 
+	terbuka, err := s.repo.PeriodeDaftarTungguTerbuka(ctx, kelasID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !terbuka {
+		return nil, ErrPeriodeDaftarTungguTutup
+	}
+
 	// Periksa kelayakan akademik mahasiswa.
 	// Validasi menggunakan service dari modul KRS,
 	// bukan membuat ulang aturan validasi di sini.
@@ -183,6 +192,20 @@ func (s *Service) PromosikanAntrean(
 
 	if kelasID <= 0 {
 		return nil, ErrKelasIDTidakValid
+	}
+
+	ditutup, err := s.repo.ProsesBatasWaktuKelas(ctx, kelasID)
+	if err != nil {
+		return nil, err
+	}
+
+	if ditutup {
+		return &HasilPromosi{
+			KelasID:       kelasID,
+			Dipromosikan:  []DaftarTunggu{},
+			Dilewati:      []DaftarTunggu{},
+			KursiTersedia: 0,
+		}, nil
 	}
 
 	// 1. Mulai transaksi.
@@ -510,6 +533,85 @@ func (s *Service) promosikanSetelahKursiLepas(
 			kelasID,
 			err,
 		)
+	}
+
+	return nil
+}
+
+// TindaklanjutiPenolakanPerubahan melepaskan kursi dan
+// mempromosikan kandidat FIFO setelah permintaan ditolak.
+func (s *Service) TindaklanjutiPenolakanPerubahan(
+	ctx context.Context,
+	permintaanID int,
+) error {
+
+	if s.repo == nil {
+		return ErrRepositoryTidakTersedia
+	}
+
+	if permintaanID <= 0 {
+		return errors.New("ID permintaan perubahan tidak valid")
+	}
+
+	if s.validator == nil {
+		return ErrValidatorTidakTersedia
+	}
+
+	kelasID, terkait, err := s.repo.TandaiTawaranDitolak(
+		ctx,
+		permintaanID,
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"gagal melepaskan kursi daftar tunggu: %w",
+			err,
+		)
+	}
+
+	// Permintaan bukan berasal dari daftar tunggu.
+	if !terkait {
+		return nil
+	}
+
+	// Promosikan kandidat berikutnya berdasarkan FIFO.
+	_, err = s.PromosikanAntrean(ctx, kelasID)
+	if err != nil {
+		return fmt.Errorf(
+			"gagal mempromosikan antrean kelas %d: %w",
+			kelasID,
+			err,
+		)
+	}
+
+	return nil
+}
+
+func (s *Service) ProsesAntreanBerbatasWaktu(
+	ctx context.Context,
+) error {
+
+	if s.repo == nil {
+		return ErrRepositoryTidakTersedia
+	}
+
+	if s.validator == nil {
+		return ErrValidatorTidakTersedia
+	}
+
+	kelasIDs, err := s.repo.ListKelasPerluDiproses(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, kelasID := range kelasIDs {
+		_, err := s.PromosikanAntrean(ctx, kelasID)
+		if err != nil {
+			return fmt.Errorf(
+				"gagal memproses batas waktu antrean kelas %d: %w",
+				kelasID,
+				err,
+			)
+		}
 	}
 
 	return nil

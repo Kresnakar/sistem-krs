@@ -139,24 +139,35 @@ func main() {
 	krsService := krs.NewService(krsRepo)
 	krsHandler := krs.NewHandler(krsService, store)
 
-	// Modul Daftar Tunggu
+	// 7. Modul Daftar Tunggu
 	daftartungguRepo := daftartunggu.NewRepository(db)
+	validator := daftartunggu.NewKRSValidatorAdapter(db, krsService, ksRepo)
+	daftartungguService := daftartunggu.NewService(daftartungguRepo, validator)
+	// Proses otomatis untuk menghapus tawaran daftar tunggu yang sudah melewati batas waktu.
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
 
-	validator := daftartunggu.NewKRSValidatorAdapter(
-		db,
-		krsService,
-		ksRepo,
-	)
+		for {
+			ctx, cancel := context.WithTimeout(
+				context.Background(),
+				30*time.Second,
+			)
 
-	daftartungguService := daftartunggu.NewService(
-		daftartungguRepo,
-		validator,
-	)
+			err := daftartungguService.ProsesAntreanBerbatasWaktu(ctx)
+			if err != nil {
+				log.Printf(
+					"Gagal memproses batas waktu daftar tunggu: %v",
+					err,
+				)
+			}
 
-	daftartungguHandler := daftartunggu.NewHandler(
-		daftartungguService,
-		store,
-	)
+			cancel()
+
+			<-ticker.C
+		}
+	}()
+	daftartungguHandler := daftartunggu.NewHandler(daftartungguService, store)
 
 	krsMux := http.NewServeMux()
 	krsHandler.RegisterRoutes(krsMux)
