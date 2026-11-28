@@ -8,6 +8,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/kresnakar/sistem-krs/internal/auth"
+	"github.com/kresnakar/sistem-krs/internal/daftartunggu"
 	"github.com/kresnakar/sistem-krs/internal/database"
 	"github.com/kresnakar/sistem-krs/internal/kelas"
 	"github.com/kresnakar/sistem-krs/internal/kesetaraan"
@@ -138,6 +139,25 @@ func main() {
 	krsService := krs.NewService(krsRepo)
 	krsHandler := krs.NewHandler(krsService, store)
 
+	// Modul Daftar Tunggu
+	daftartungguRepo := daftartunggu.NewRepository(db)
+
+	validator := daftartunggu.NewKRSValidatorAdapter(
+		db,
+		krsService,
+		ksRepo,
+	)
+
+	daftartungguService := daftartunggu.NewService(
+		daftartungguRepo,
+		validator,
+	)
+
+	daftartungguHandler := daftartunggu.NewHandler(
+		daftartungguService,
+		store,
+	)
+
 	krsMux := http.NewServeMux()
 	krsHandler.RegisterRoutes(krsMux)
 
@@ -169,6 +189,9 @@ func main() {
 
 	krsMahasiswaMux := http.NewServeMux()
 	krs.NewMahasiswaHandler(krsService, store).RegisterRoutes(krsMahasiswaMux)
+
+	daftartungguHandler.RegisterRoutes(krsMahasiswaMux)
+
 	rootMux.Handle(
 		"/api/krs/mahasiswa/",
 		auth.RequireAuth(store)(

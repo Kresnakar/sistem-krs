@@ -157,6 +157,52 @@ func (v *KRSValidatorAdapter) EvaluasiUntukDaftarTunggu(
 		daftarKode = append(daftarKode, kodeMK)
 	}
 
+	// Periksa apakah mahasiswa sudah mengantre pada
+	// mata kuliah lain yang ekuivalen.
+	antreanPlaceholders := make([]string, len(daftarKode))
+	antreanArgs := []any{nim, kelasID}
+
+	for i, kode := range daftarKode {
+		antreanPlaceholders[i] = "?"
+		antreanArgs = append(antreanArgs, kode)
+	}
+
+	queryAntrean := `
+		SELECT EXISTS (
+			SELECT 1
+			FROM daftar_tunggu dt
+			JOIN kelas k ON k.id = dt.kelas_id
+			WHERE dt.nim = ?
+			  AND dt.kelas_id <> ?
+			  AND dt.status IN (
+				'Menunggu',
+				'MenungguKonfirmasi',
+				'Dilewati',
+				'Diterima'
+			  )
+			  AND k.kode_mk IN (` +
+		strings.Join(antreanPlaceholders, ",") + `)
+		)
+	`
+
+	var sudahMengantre bool
+
+	err = v.db.QueryRowContext(
+		ctx,
+		queryAntrean,
+		antreanArgs...,
+	).Scan(&sudahMengantre)
+
+	if err != nil {
+		return false, "", err
+	}
+
+	if sudahMengantre {
+		return false,
+			"Sudah mengantre pada mata kuliah yang ekuivalen",
+			nil
+	}
+
 	// 4. Periksa apakah mata kuliah atau ekuivalennya
 	// sudah terdaftar di KRS mahasiswa.
 	placeholders := make([]string, len(daftarKode))
