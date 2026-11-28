@@ -123,11 +123,15 @@ const queryHitungKursiDitahan = `
                     ON pd.permintaan_id = p.id
                 JOIN krs k
                     ON k.id = p.krs_id
+                JOIN periode_krs pk
+                    ON pk.semester_id = k.semester_id
                 WHERE pd.daftar_tunggu_id = dt.id
                   AND pd.kelas_id = dt.kelas_id
                   AND k.nim = dt.nim
                   AND p.jenis_perubahan = 'Tambah Kelas'
                   AND p.status = 'Menunggu'
+                  AND NOW() >= pk.mulai_perubahan
+                  AND NOW() < pk.selesai_perubahan
             )
         )
       )
@@ -1471,7 +1475,6 @@ func (r *Repository) TandaiTawaranDitolak(
 	return kelasID, true, nil
 }
 
-
 func (r *Repository) PeriodeDaftarTungguTerbuka(
 	ctx context.Context,
 	kelasID int,
@@ -1497,7 +1500,6 @@ func (r *Repository) PeriodeDaftarTungguTerbuka(
 
 	return terbuka, err
 }
-
 
 func (r *Repository) ProsesBatasWaktuKelas(
 	ctx context.Context,
@@ -1586,7 +1588,6 @@ func (r *Repository) ProsesBatasWaktuKelas(
 	return ditutup, nil
 }
 
-
 func (r *Repository) ListKelasPerluDiproses(
 	ctx context.Context,
 ) ([]int, error) {
@@ -1634,4 +1635,3 @@ func (r *Repository) ListKelasPerluDiproses(
 
 	return kelasIDs, nil
 }
-
